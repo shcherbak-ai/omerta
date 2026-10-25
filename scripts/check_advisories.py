@@ -23,17 +23,25 @@ advisory accepted while its fix waits out the cooldown carries the fix's
 upload: the check warns of it until the cooldown admits the fix, and then
 fails until the entry is removed.
 
-It runs at each commit, as an advisory can come out between two commits. CI
-skips it (``SKIP``), where its result would depend on the day rather than on
-the commit. Offline: ``SKIP=advisories git commit``.
+It runs at each commit, as an advisory can come out between two commits. CI's
+run of the hooks skips it (``SKIP``), where its result would depend on the day
+rather than on the commit. Offline: ``SKIP=advisories git commit``.
+
+With ``--runtime``, it checks only the advisories of the package's own
+dependencies, at the versions of ``uv.lock``, which the package pins exactly:
+what users install, and keep until a release. That runs daily on ``main``
+(``advisories.yml``). The cooldown, its exceptions, uv and the Node tools are
+for development, and stay with the hook, at the next commit.
 
 Run directly::
 
     uv run python scripts/check_advisories.py
+    uv run python scripts/check_advisories.py --runtime
 """
 
 from __future__ import annotations
 
+import argparse
 import datetime
 import json
 import re
@@ -232,6 +240,41 @@ def _checked_packages(lock: dict) -> list[tuple[str, str, str]]:
     ]
 
 
+def _runtime_packages(pyproject: dict, lock: dict) -> list[tuple[str, str, str]]:
+    """The ``("PyPI", name, version)`` of each registry package that the
+    package installs with, as ``uv.lock`` has it: its dependencies, and theirs
+    in turn, on every platform, without its development groups or extras."""
+    by_name: dict[str, list[dict]] = {}
+    for package in lock["package"]:
+        by_name.setdefault(package["name"], []).append(package)
+
+    def locked(entry: dict) -> dict:
+        """The locked package that a dependency of ``uv.lock`` names."""
+        name = re.sub(r"[-_.]+", "-", entry["name"]).lower()
+        candidates = [
+            package
+            for package in by_name.get(name, [])
+            if entry.get("version", package["version"]) == package["version"]
+        ]
+        if len(candidates) != 1:
+            raise _CheckError(f"uv.lock does not hold one version of {name}.")
+        return candidates[0]
+
+    found: set[tuple[str, str]] = set()
+    pending = list(locked({"name": pyproject["project"]["name"]}).get("dependencies", []))
+    while pending:
+        package = locked(pending.pop())
+        key = (package["name"], package["version"])
+        if key not in found:
+            found.add(key)
+            pending.extend(package.get("dependencies", []))
+    return [
+        ("PyPI", name, version)
+        for name, version in sorted(found)
+        if "registry" in locked({"name": name, "version": version}).get("source", {})
+    ]
+
+
 def _advisories(packages: list[tuple[str, str, str]]) -> tuple[list[str], set[str]]:
     """Ask osv.dev for the advisories of the checked versions: known
     vulnerabilities, and reports of malicious packages.
@@ -276,11 +319,50 @@ def _advisories(packages: list[tuple[str, str, str]]) -> tuple[list[str], set[st
     return found, seen
 
 
-def main() -> int:
+def _runtime(pyproject: dict, lock: dict) -> int:
+    """Check the advisories of the package's own dependencies only; 1 when one has any.
+
+    Raises:
+        _CheckError: uv.lock or the answer of osv.dev cannot be read.
+    """
+    packages = _runtime_packages(pyproject, lock)
+    if not packages:
+        print("The package has no dependencies to check.")
+        return 0
+    advisories, seen = _advisories(packages)
+    if advisories:
+        print("Advisories of the package's own dependencies (osv.dev), which users install:")
+        for line in advisories:
+            print(f"  {line}")
+        print()
+        print(
+            "Move the pin past the advisory and release, or accept it in ACCEPTED_ADVISORIES "
+            "with the reason. A malicious package (MAL-): remove it, and treat each machine "
+            "that installed it as compromised: rotate every credential it could reach."
+        )
+        return 1
+    listed = ", ".join(f"{name} {version}" for _, name, version in packages)
+    accepted = ", but for those accepted" if seen & ACCEPTED_ADVISORIES.keys() else ""
+    print(f"No advisory at osv.dev for the package's own dependencies{accepted}: {listed}.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     """Run the check; 1 when it fails, else 0."""
+    parser = argparse.ArgumentParser(
+        description="The cooldown of the lockfiles, and the advisories of their versions."
+    )
+    parser.add_argument(
+        "--runtime",
+        action="store_true",
+        help="only the advisories of the package's own dependencies, which users install",
+    )
+    runtime = parser.parse_args(argv).runtime
     try:
         pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+        if runtime:
+            return _runtime(pyproject, lock)
         now = datetime.datetime.now(datetime.UTC)
         cooldown_findings, warnings = _cooldown(pyproject, lock, now)
         fix_findings, fix_warnings = _waiting_fixes(now)

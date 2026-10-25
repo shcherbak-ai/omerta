@@ -70,8 +70,9 @@ repos:
       # version, nor the uv that the workflows pin, has an advisory at osv.dev,
       # but for its ACCEPTED_ADVISORIES. At each commit, as an advisory comes
       # out without a change to a file. CI skips it (SKIP), where its result
-      # would depend on the day, not on the commit. Verbose, for its warnings,
-      # which do not fail it.
+      # would depend on the day, not on the commit; advisories.yml runs it
+      # daily for the package's own dependencies (--runtime). Verbose, for its
+      # warnings, which do not fail it.
       - id: advisories
         name: release cooldown, and no advisories of locked versions
         entry: uv run python scripts/check_advisories.py
@@ -86,6 +87,15 @@ repos:
       - id: licenseal
         name: licenseal
         entry: uv run licenseal check --no-dev
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+      # That omerta installs from wheels, at its pins, on every platform and
+      # Python of its classifiers: only where a commit changes them, as uv asks
+      # PyPI, and in CI at every push, like licenseal.
+      - id: wheels
+        name: wheels on every platform
+        entry: uv run python scripts/check_wheels.py
         language: system
         files: ^(pyproject\.toml|uv\.lock)$
         pass_filenames: false

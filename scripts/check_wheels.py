@@ -10,8 +10,8 @@ cooldown of ``[tool.uv] exclude-newer``. It fails on a gap that
 README's note on it goes too.
 
 The dependencies are pinned exactly, so it checks the versions users install.
-It runs daily in CI (``latest.yml``), as a release can lose files after it
-was pinned. Run directly::
+It runs as a pre-commit hook where a commit changes ``pyproject.toml`` or
+``uv.lock``, and in CI at every push. Run directly::
 
     uv run python scripts/check_wheels.py
 """

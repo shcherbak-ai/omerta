@@ -31,6 +31,7 @@ Run automatically on every commit:
 - **uv lock check**: `uv.lock` matches `pyproject.toml`
 - **advisories**: a release enters `uv.lock` and `package-lock.json` only a week after its upload, and no locked version, nor the uv that the workflows pin, has an advisory at [osv.dev](https://osv.dev) (below)
 - **licenseal**: the licences of the package's own dependencies, at a commit that changes `pyproject.toml` or `uv.lock`, as it asks PyPI for each package ([below](#dependency-licenses))
+- **wheels**: omerta installs from wheels, at its pinned dependencies, on every platform and Python it supports, at a commit that changes `pyproject.toml` or `uv.lock`
 - **bandit**: security analysis
 - **markdownlint**: Markdown linting, with the version of `package-lock.json` (`npm ci` installs it)
 - **interrogate**: docstring coverage on `src/`
@@ -46,7 +47,7 @@ Manual run:
 uv run pre-commit run --all-files
 ```
 
-The cooldown is `exclude-newer` in `pyproject.toml` and `min-release-age` in `.npmrc`. The advisories hook accepts only the advisories listed with their reasons in `ACCEPTED_ADVISORIES` in [scripts/check_advisories.py](scripts/check_advisories.py), where one whose fix waits out the cooldown is accepted until the cooldown admits the fix. It asks osv.dev at each commit, as an advisory can come out at any time, so it can fail on a change that touches no dependency: then commit with `SKIP=advisories git commit …`, and the maintainer upgrades the dependencies. CI skips it.
+The cooldown is `exclude-newer` in `pyproject.toml` and `min-release-age` in `.npmrc`. The advisories hook accepts only the advisories listed with their reasons in `ACCEPTED_ADVISORIES` in [scripts/check_advisories.py](scripts/check_advisories.py), where one whose fix waits out the cooldown is accepted until the cooldown admits the fix. It asks osv.dev at each commit, as an advisory can come out at any time, so it can fail on a change that touches no dependency: then commit with `SKIP=advisories git commit …`, and the maintainer upgrades the dependencies. CI's checks skip it. A daily workflow on `main` (`advisories.yml`) runs it with `--runtime`, for the package's own dependencies only: users install them at the pinned versions, so an advisory there calls for a release.
 
 ## Tests
 
