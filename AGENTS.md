@@ -105,9 +105,9 @@ Optional, at the root of the repository, read from the working tree: in `[tool.o
 
 ## README
 
-`README.md` is for users of any language, since env files are in every ecosystem; `uvx` runs omerta without Python knowledge, as uv fetches a Python 3.11+ when none is installed. Besides the pitch, it covers:
+`README.md` is for users of any language, since env files are in every ecosystem; `uvx` runs omerta without Python knowledge, as uv fetches a Python 3.11+ when none is installed. It is short and scannable: each thing said once, one example for each task, and the variants of one (other hook runners) folded in a `<details>`. Besides the pitch, it covers:
 
-- at its top, centred: the wordmark (`assets/omerta-wordmark.svg`, pixel letters standing over their depth, in emerald, the o a padlock whose shackle lifts and snaps shut once and stays still under reduced motion), the description as the heading, the tagline, the badges in the wordmark's emerald (`#047857`, dark enough for their white text), and a row of links to its main sections, the changelog and the security policy;
+- at its top, centred: the wordmark (`assets/omerta-wordmark.svg`, pixel letters standing over their depth, in emerald, the o a padlock whose shackle lifts and snaps shut once and stays still under reduced motion), the description as the heading, the tagline, the badges in the wordmark's emerald (`#047857`, dark enough for their white text), a row of links to its main sections, the changelog and the security policy, and the figure (`assets/omerta-figure.svg`) with its caption: a commit in a terminal that the hook stops, the findings naming the variable while the value in `.env` lights up as caught, which plays once, rests on the whole drawing and stays still under reduced motion; its characters are placed on a fixed grid, so that its columns hold in any monospace font;
 - a quick start: `uvx omerta check --all` and `uvx omerta history`, then `ignore` for the non-secret values found (`localhost`, `postgres`);
 - the hook: pre-commit's remote hook (`repo`, `rev`, `id: omerta`) with how to install pre-commit; Husky, Lefthook and a plain `.git/hooks/pre-commit`, each running `uvx omerta@<version> check`; and, for Python projects, the dev dependency and local hook above;
 - CI: a GitHub Actions job with `astral-sh/setup-uv`, `fetch-depth: 0`, `check --all` and `history`;

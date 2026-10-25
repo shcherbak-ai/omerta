@@ -13,3 +13,5 @@ config:
       - br
       - h1
       - sup
+      - details
+      - summary
