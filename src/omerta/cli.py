@@ -72,7 +72,8 @@ def _run(args: argparse.Namespace, findings: list[Finding], searched: list[Targe
         folder = os.path.join(folder, given)
         if not os.path.isdir(folder):
             raise OmertaError(f"cannot change to {given}: no such folder")
-    folder = os.path.abspath(folder)
+    # Where its links lead, as git sees it: git's `--show-cdup` climbs from there.
+    folder = os.path.realpath(folder)
     executable = find_executable(
         os.environ.get("PATH", ""), [start, folder], find_repository(folder)
     )
@@ -181,11 +182,20 @@ def _positive(text: str) -> int:
 
 
 def _write(stream: TextIO, text: str) -> None:
-    """Write text to a stream in UTF-8, with ``\\n`` line ends, whatever its encoding."""
+    """Write text to a stream in UTF-8, with ``\\n`` line ends, whatever its encoding.
+
+    A stream whose reader has gone (``omerta history | head``) takes nothing
+    more: the rest is dropped, and so is what Python would flush into it at exit.
+    """
     buffer = getattr(stream, "buffer", None)
-    if buffer is None:
-        stream.write(text)
-        return
-    stream.flush()
-    buffer.write(text.encode("utf-8"))
-    buffer.flush()
+    try:
+        if buffer is None:
+            stream.write(text)
+            return
+        stream.flush()
+        buffer.write(text.encode("utf-8"))
+        buffer.flush()
+    except BrokenPipeError:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, stream.fileno())
+        os.close(devnull)

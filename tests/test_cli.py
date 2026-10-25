@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import os
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -59,6 +61,33 @@ def test_a_folder_given_with_c_must_exist(omerta, repo: Repo):
     assert (result.code, result.err) == (2, "omerta: cannot change to missing: no such folder\n")
 
 
+def _link_folder(link: Path, target: Path) -> None:
+    """Make ``link`` lead to the folder ``target``: on Windows a junction, which needs no right."""
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def test_a_folder_reached_through_a_link_is_where_the_link_leads(
+    omerta, repo: Repo, tmp_path: Path
+):
+    repo.write(".env", f"API_KEY={_KEY}\n")
+    repo.write("sub/app.py", f"{_KEY}\n")
+    repo.add("sub/app.py")
+    link = tmp_path / "link"
+    _link_folder(link, repo.path / "sub")
+    found = ["sub/app.py:1: API_KEY (from .env)"]
+    # git climbs from where the link leads, and so does omerta: not from its parent.
+    assert omerta("-C", str(link), "check", "--all", cwd=repo.path).lines == found
+    assert omerta("-C", str(link), "check", "app.py", cwd=repo.path).lines == found
+    within = omerta("check", "--all", cwd=link)
+    assert within.lines == found
+    within.assert_silent_about(_KEY)
+
+
 def test_git_must_be_on_path(omerta, repo: Repo, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PATH", "")
     result = omerta("check", cwd=repo.path)
@@ -87,6 +116,47 @@ def test_output_is_utf8_with_newlines_whatever_the_stream(monkeypatch: pytest.Mo
     wrapper = io.TextIOWrapper(raw, encoding="cp1252", newline="\r\n")
     cli._write(wrapper, "café\n")
     assert raw.getvalue() == "café\n".encode()
+
+
+def test_a_stream_whose_reader_has_gone_takes_nothing_more(tmp_path: Path):
+    class Stream:
+        """Standard output into a pipe whose reader has gone."""
+
+        def __init__(self, fd: int) -> None:
+            self.fd = fd
+            self.buffer = self
+
+        def flush(self) -> None:
+            pass
+
+        def write(self, data: bytes) -> None:
+            raise BrokenPipeError
+
+        def fileno(self) -> int:
+            return self.fd
+
+    target = tmp_path / "out.txt"
+    with target.open("wb") as file:
+        cli._write(Stream(file.fileno()), "a.py:1: K (from .env)\n")
+        # What Python would flush into the stream at exit goes nowhere.
+        os.write(file.fileno(), b"a.py:1: K (from .env)\n")
+    assert target.read_bytes() == b""
+
+
+def test_findings_to_a_reader_that_stops_early_end_the_run_quietly(repo: Repo):
+    repo.write(".env", f"API_KEY={_KEY}\n")
+    blob = repo.blob(f"{_KEY}\n")
+    # More findings than a pipe holds, so that omerta writes while its reader has gone.
+    repo.index_info(*(("100644", blob, 0, f"files/{n:05}.txt".encode()) for n in range(5000)))
+    run = "import sys; from omerta.cli import main; sys.exit(main(['check', '--all']))"
+    with subprocess.Popen(
+        [sys.executable, "-c", run], cwd=repo.path, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    ) as process:
+        assert process.stdout is not None and process.stderr is not None
+        assert process.stdout.readline() == b"files/00000.txt:1: API_KEY (from .env)\n"
+        process.stdout.close()
+        assert process.stderr.read() == b""
+    assert process.returncode == 1
 
 
 def test_findings_go_to_stdout_and_errors_to_stderr(

@@ -6,6 +6,7 @@ import io
 import os
 import shutil
 import subprocess
+import zlib
 from pathlib import Path
 
 import pytest
@@ -307,7 +308,7 @@ def test_an_object_cut_short_is_an_error(
     git.open()
 
     class Process:
-        """A git that stops in the middle of an object."""
+        """A git that stops in the middle of an object, yet exits without an error."""
 
         def __init__(self, *args, **kwargs) -> None:
             self.stdout = io.BytesIO(output)
@@ -316,11 +317,26 @@ def test_an_object_cut_short_is_an_error(
             pass
 
         def wait(self) -> int:
-            return -9
+            return 0
 
     monkeypatch.setattr(subprocess, "Popen", Process)
     with pytest.raises(OmertaError, match="git object 1234 cannot be read"):
         list(git.objects(["1234"]))
+
+
+def test_a_git_that_stops_inside_an_object_is_reported_with_its_error(repo: Repo):
+    data = bytes(range(256)) * 40
+    blob = repo.blob(data)
+    # The object's header and the start of its content: git announces the
+    # object, and stops where the content breaks off.
+    loose = repo.path / ".git" / "objects" / blob[:2] / blob[2:]
+    loose.chmod(0o644)
+    loose.write_bytes(zlib.compress(b"blob %d\0" % len(data) + data)[:40])
+    git = _git(repo)
+    git.open()
+    with pytest.raises(GitError, match="git cat-file failed with exit status 128") as failure:
+        list(git.objects([blob]))
+    assert failure.value.stderr.startswith(b"fatal:")
 
 
 def test_null_object_ids():

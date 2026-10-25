@@ -231,7 +231,10 @@ class Git:
         (``--batch-check``).
 
         Raises:
-            OmertaError: An object cannot be read.
+            GitError: git stops before it has given an object whole, with an
+                exit status other than 0, such as for a corrupt object.
+            OmertaError: An object cannot be read otherwise, such as one that
+                is missing.
         """
         # The IDs come from a file, which git reads at its pace: a pipe would need
         # a thread writing to it, which git can block for good.
@@ -250,13 +253,15 @@ class Git:
             stdout = _output(process)
             try:
                 for oid in oids:
-                    header = stdout.readline().split()
+                    line = stdout.readline()
+                    header = line.split()
                     if len(header) != 3:
-                        raise OmertaError(f"git object {oid} cannot be read")
+                        # `<oid> missing`, or nothing from a git that stopped
+                        raise _unread(oid, process, errors, stopped=not line)
                     kind, size = header[1].decode("ascii"), int(header[2])
                     data = b"" if check else stdout.read(size + 1)
                     if not check and (len(data) != size + 1 or not data.endswith(b"\n")):
-                        raise OmertaError(f"git object {oid} cannot be read")
+                        raise _unread(oid, process, errors, stopped=len(data) <= size)
                     yield oid, kind, data[:-1]
             finally:
                 # Closed first: the git that a launcher starts (Git for Windows'
@@ -265,6 +270,22 @@ class Git:
                 stdout.close()
                 process.kill()
                 process.wait()
+
+
+def _unread(
+    oid: str, process: subprocess.Popen[bytes], errors: IO[bytes], *, stopped: bool
+) -> OmertaError:
+    """The error for an object that git did not give whole.
+
+    Where git ``stopped`` (its output ended), it has exited or is exiting, and
+    a failure is reported as git's own, with its error output.
+    """
+    if stopped:
+        status = process.wait()
+        if status:
+            errors.seek(0)
+            return GitError("cat-file", status, errors.read())
+    return OmertaError(f"git object {oid} cannot be read")
 
 
 def _output(process: subprocess.Popen[bytes]) -> IO[bytes]:
