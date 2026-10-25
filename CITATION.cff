@@ -3,7 +3,8 @@ message: "If you use this software, please cite it as below."
 type: software
 title: "omerta"
 abstract: "Fail when a value of your env files, e.g. an API key in .env, is in git: staged, tracked, or anywhere in the history"
-version: 0.0.0
+version: 0.1.0
+date-released: 2026-10-25
 license: MIT
 repository-code: "https://github.com/shcherbak-ai/omerta"
 url: "https://github.com/shcherbak-ai/omerta"
