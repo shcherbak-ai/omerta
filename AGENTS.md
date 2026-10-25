@@ -107,11 +107,13 @@ Optional, at the root of the repository, read from the working tree: in `[tool.o
 
 `README.md` is for users of any language, since env files are in every ecosystem; `uvx` runs omerta without Python knowledge, as uv fetches a Python 3.11+ when none is installed. Besides the pitch, it covers:
 
+- under the badges, a row of links to its main sections, the changelog and the security policy;
 - a quick start: `uvx omerta check --all` and `uvx omerta history`, then `ignore` for the non-secret values found (`localhost`, `postgres`);
 - the hook: pre-commit's remote hook (`repo`, `rev`, `id: omerta`) with how to install pre-commit; Husky, Lefthook and a plain `.git/hooks/pre-commit`, each running `uvx omerta@<version> check`; and, for Python projects, the dev dependency and local hook above;
 - CI: a GitHub Actions job with `astral-sh/setup-uv`, `fetch-depth: 0`, `check --all` and `history`;
 - configuration: `[tool.omerta]` or `.omerta.toml`, short secrets and `min-chars`, projects that commit an env file on purpose;
-- the git it needs (2.31; 2.45 in a partial clone), and `safe.directory` for a CI container whose user does not own the checkout (git refuses such a repository for "dubious ownership", and omerta passes that error on).
+- the git it needs (2.31; 2.45 in a partial clone), and `safe.directory` for a CI container whose user does not own the checkout (git refuses such a repository for "dubious ownership", and omerta passes that error on);
+- at its end, "More from shcherbak_ai": the sibling projects, one row each, its wordmark linked to its repository beside one sentence on what it does, then a line of contact links. The wordmarks in `assets/` are those projects' own, as they are: never redrawn here.
 
 The examples pin a release (`omerta@X.Y.Z`, `rev: vX.Y.Z`); `PYPI.md` carries the same quick start and hook, shorter.
 

@@ -13,10 +13,13 @@ Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), git 2.31+, and [Node.js
 git clone https://github.com/shcherbak-ai/omerta.git
 cd omerta
 git checkout dev
+uv python install
 uv sync
 npm ci
 uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
+
+`uv python install` installs the Python of `.python-version`, the one the environment is built on, and uv then takes its own build of it over another on the machine.
 
 ## Pre-commit Hooks
 

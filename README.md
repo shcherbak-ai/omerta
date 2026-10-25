@@ -10,6 +10,15 @@
 <a href="https://github.com/shcherbak-ai/omerta/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shcherbak-ai/omerta/ci.yml?branch=main&style=flat-square&labelColor=18181b&label=CI"></a>
 </p>
 
+<p align="center">
+<a href="#quick-start"><strong>Quick start</strong></a> ·
+<a href="#use-it-as-a-git-hook"><strong>Git hooks</strong></a> ·
+<a href="#use-it-in-ci"><strong>CI</strong></a> ·
+<a href="#configuration"><strong>Configuration</strong></a> ·
+<a href="CHANGELOG.md"><strong>Changelog</strong></a> ·
+<a href="SECURITY.md"><strong>Security</strong></a>
+</p>
+
 omerta reads the values of your env files (`.env`, `.env.local`, …) and fails when one of them is in git: in the staged changes, in a tracked file, or anywhere in the history. It matches your actual values, as they are written and as they are encoded in URLs, JSON and base64, so it catches secrets of any format: the key of a small provider, the name of a cloud resource, an organisation ID. What it reports is always one of your values, byte for byte, and it reports it by the name of its variable, never by the value.
 
 It complements pattern scanners such as gitleaks, TruffleHog and detect-secrets, which find what looks like a key, not your keys. The name is the code of silence: your secrets never speak in git.
@@ -96,6 +105,7 @@ permissions:
 jobs:
   omerta:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -179,3 +189,24 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 ## License
 
 [MIT](LICENSE)
+
+## More from shcherbak_ai
+
+<!-- markdownlint-disable MD033 -->
+<table>
+  <tr>
+    <td width="36%" align="center"><a href="https://github.com/shcherbak-ai/contextgem"><img src="assets/contextgem-wordmark.svg" alt="ContextGem" width="252"></a></td>
+    <td>Structured extraction from documents with LLMs.</td>
+  </tr>
+  <tr>
+    <td width="36%" align="center"><a href="https://github.com/shcherbak-ai/licenseal"><img src="assets/licenseal-wordmark.svg" alt="licenseal" width="252"></a></td>
+    <td>License compatibility checks for dependency trees, fast enough for CI.</td>
+  </tr>
+  <tr>
+    <td width="36%" align="center"><a href="https://github.com/shcherbak-ai/tethered"><img src="assets/tethered-wordmark.svg" alt="tethered" width="252"></a></td>
+    <td>Network egress control for CLI tools and agent workflows.</td>
+  </tr>
+</table>
+<!-- markdownlint-enable MD033 -->
+
+Questions or collaboration ideas? Reach out on [LinkedIn](https://www.linkedin.com/in/sergii-shcherbak-10068866/) or [X](https://x.com/seshch). Built with ❤️ in Oslo, Norway.
