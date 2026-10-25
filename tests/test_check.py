@@ -16,15 +16,18 @@ _URL = "https://res.example.com/"
 _PEM = "-----BEGIN KEY-----\nMIIEvQIBADANBg\n-----END KEY-----"
 # Bytes whose base64 has `+` and `/` in the standard alphabet, `-` and `_` in the URL-safe one.
 _TOKEN = ">>>???>>>???>>>???"
+# A space, which a query writes `+`; a quote, which JSON escapes; and a letter beyond ASCII.
+_PASSPHRASE = 'pa"ss wörd/1234'
 
 
 @pytest.fixture
 def project(repo: Repo) -> Repo:
-    """A repository with an ignored .env that sets a key, a URL, a multi-line value and a token."""
+    """A repository with an ignored .env: a key, a URL, a multi-line value, a token, a phrase."""
     repo.write(".gitignore", ".env\n.env.local\n")
     repo.write(
         ".env",
-        f'API_KEY={_KEY}\nBASE_URL={_URL}\nPEM="{_PEM}"\nTOKEN="{_TOKEN}"\nDEBUG=true\n',
+        f'API_KEY={_KEY}\nBASE_URL={_URL}\nPEM="{_PEM}"\nTOKEN="{_TOKEN}"\nDEBUG=true\n'
+        f"PASSPHRASE='{_PASSPHRASE}'\n",
     )
     repo.add(".gitignore")
     return repo
@@ -158,8 +161,10 @@ def _crlf(text: str) -> str:
         (f"a\nb\n{_crlf(_PEM)}\n", "PEM", "plain"),
         ("a\nb\nurl=https%3A%2F%2Fres.example.com%2F\n", "BASE_URL", "url"),
         ("a\nb\nq=https%3a%2f%2fres.example.com\n", "BASE_URL", "url"),
+        (f"a\nb\nq={urllib.parse.quote_plus(_PASSPHRASE, safe='')}\n", "PASSPHRASE", "url"),
         ('a\nb\n{"url": "https:\\/\\/res.example.com\\/"}\n', "BASE_URL", "json"),
         (f"a\nb\n{json.dumps({'pem': _PEM})}\n", "PEM", "json"),
+        (f"a\nb\n{json.dumps({'p': _PASSPHRASE}, ensure_ascii=False)}\n", "PASSPHRASE", "json"),
         (
             f"a\nb\nAuthorization: Basic {base64.b64encode(f'user:{_KEY}'.encode()).decode()}\n",
             "API_KEY",
@@ -171,6 +176,8 @@ def _crlf(text: str) -> str:
             "base64",
         ),
         (f"a\nb\n{base64.b64encode(f'xy{_KEY}'.encode()).decode()}\n", "API_KEY", "base64"),
+        (f"a\nb\n{base64.b64encode(f'x{_KEY}'.encode()).decode()}\n", "API_KEY", "base64"),
+        (f"a\nb\n{base64.b64encode(f'xyz{_KEY}'.encode()).decode()}\n", "API_KEY", "base64"),
     ],
     ids=[
         "plain",
@@ -178,11 +185,15 @@ def _crlf(text: str) -> str:
         "multi-line with crlf",
         "url escaped",
         "url escaped lowercase",
+        "url with a space as +",
         "json with escaped slashes",
         "json with escaped newlines",
+        "json with non-ascii as it is",
         "base64",
         "base64 url-safe",
         "base64 after two bytes",
+        "base64 after one byte",
+        "base64 after three bytes",
     ],
 )
 def test_each_form_is_found_at_its_line_with_its_kind(
@@ -194,7 +205,9 @@ def test_each_form_is_found_at_its_line_with_its_kind(
     assert [json.loads(line) for line in result.lines] == [
         {"path": "found.txt", "line": 3, "variable": variable, "env_file": ".env", "form": form}
     ]
-    result.assert_silent_about(_KEY, _URL, _PEM, _TOKEN, urllib.parse.quote(_URL, safe=""))
+    result.assert_silent_about(
+        _KEY, _URL, _PEM, _TOKEN, _PASSPHRASE, urllib.parse.quote(_URL, safe="")
+    )
 
 
 def test_a_url_safe_base64_form_is_found_where_no_standard_one_is(project: Repo, omerta):
