@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import io
 import os
 import socket
@@ -118,29 +119,56 @@ def test_output_is_utf8_with_newlines_whatever_the_stream(monkeypatch: pytest.Mo
     assert raw.getvalue() == "café\n".encode()
 
 
-def test_a_stream_whose_reader_has_gone_takes_nothing_more(tmp_path: Path):
-    class Stream:
-        """Standard output into a pipe whose reader has gone."""
+class _GonePipe:
+    """Standard output into a pipe whose reader has gone, failing with ``error``."""
 
-        def __init__(self, fd: int) -> None:
-            self.fd = fd
-            self.buffer = self
+    def __init__(self, fd: int, error: OSError) -> None:
+        self.fd = fd
+        self.error = error
+        self.buffer = self
 
-        def flush(self) -> None:
-            pass
+    def flush(self) -> None:
+        pass
 
-        def write(self, data: bytes) -> None:
-            raise BrokenPipeError
+    def write(self, data: bytes) -> None:
+        raise self.error
 
-        def fileno(self) -> int:
-            return self.fd
+    def fileno(self) -> int:
+        return self.fd
 
+
+@pytest.mark.parametrize(
+    ("error", "windows"),
+    [
+        (BrokenPipeError(errno.EPIPE, "Broken pipe"), False),
+        (BrokenPipeError(errno.EPIPE, "Broken pipe"), True),
+        # Windows, for a reader that went before the write.
+        (OSError(errno.EINVAL, "Invalid argument"), True),
+    ],
+)
+def test_a_stream_whose_reader_has_gone_takes_nothing_more(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError, windows: bool
+):
+    monkeypatch.setattr(cli, "WINDOWS", windows)
     target = tmp_path / "out.txt"
     with target.open("wb") as file:
-        cli._write(Stream(file.fileno()), "a.py:1: K (from .env)\n")
+        cli._write(_GonePipe(file.fileno(), error), "a.py:1: K (from .env)\n")
         # What Python would flush into the stream at exit goes nowhere.
         os.write(file.fileno(), b"a.py:1: K (from .env)\n")
     assert target.read_bytes() == b""
+
+
+@pytest.mark.parametrize(
+    ("error", "windows"),
+    [(OSError(errno.EINVAL, "Invalid argument"), False), (OSError(errno.EIO, "I/O error"), True)],
+)
+def test_another_failure_to_write_is_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError, windows: bool
+):
+    monkeypatch.setattr(cli, "WINDOWS", windows)
+    with (tmp_path / "out.txt").open("wb") as file, pytest.raises(OSError) as raised:
+        cli._write(_GonePipe(file.fileno(), error), "a.py:1: K (from .env)\n")
+    assert raised.value is error
 
 
 def test_findings_to_a_reader_that_stops_early_end_the_run_quietly(repo: Repo):

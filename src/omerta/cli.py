@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import sys
 import traceback
@@ -11,7 +12,7 @@ from typing import TextIO
 
 from omerta import __version__, check, config, envfiles, history
 from omerta.errors import OmertaError
-from omerta.git import Git, GitError, environment, find_executable, find_repository
+from omerta.git import WINDOWS, Git, GitError, environment, find_executable, find_repository
 from omerta.output import Finding, json_line, sort_key, text_line
 from omerta.search import Target, redact, targets
 
@@ -195,7 +196,19 @@ def _write(stream: TextIO, text: str) -> None:
         stream.flush()
         buffer.write(text.encode("utf-8"))
         buffer.flush()
-    except BrokenPipeError:
+    except OSError as error:
+        if not _reader_gone(error):
+            raise
         devnull = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull, stream.fileno())
         os.close(devnull)
+
+
+def _reader_gone(error: OSError) -> bool:
+    """Whether a write failed because the reader of its pipe has gone.
+
+    Other platforms raise :class:`BrokenPipeError`. Windows raises it too
+    for a reader that goes while omerta writes, but ``EINVAL`` for one that
+    went before the write.
+    """
+    return isinstance(error, BrokenPipeError) or (WINDOWS and error.errno == errno.EINVAL)
