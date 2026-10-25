@@ -35,10 +35,10 @@ uvx omerta check --all    # every tracked file
 uvx omerta history        # every commit, tag and message
 ```
 
-[uv](https://docs.astral.sh/uv/) brings its own Python; with pip, `pip install omerta`. Leave out the values that are no secrets, such as `DB_HOST=localhost`, in `.omerta.toml`:
+[uv](https://docs.astral.sh/uv/) brings its own Python; with pip, `pip install omerta`. Values that are not secrets, such as `DB_HOST=localhost` and `DB_USER=postgres`, are found too: leave them out in `.omerta.toml`:
 
 ```toml
-ignore = ["DB_HOST", "APP_ENV"]
+ignore = ["DB_HOST", "DB_USER"]
 ```
 
 ## Git hooks
@@ -90,7 +90,7 @@ repos:
 
 ## CI
 
-CI has no `.env`, so there it finds committed env files:
+CI has no `.env` to take values from, so there omerta finds the env files that were committed:
 
 ```yaml
 # .github/workflows/omerta.yml
@@ -140,7 +140,7 @@ A value is never printed: in a name, its variable stands in its place. The exit 
 
 ## Configuration
 
-Options go after the command, `-C PATH` before it. Each has a setting in `.omerta.toml` or in `[tool.omerta]` of `pyproject.toml`, which the option overrides:
+Options go after the command, `-C PATH` before it. Settings go in `.omerta.toml` or in `[tool.omerta]` of `pyproject.toml`, and an option overrides its setting:
 
 | Option | Setting | Effect |
 | --- | --- | --- |
@@ -148,14 +148,14 @@ Options go after the command, `-C PATH` before it. Each has a setting in `.omert
 | `--ignore` | `ignore` | Variables left out, added to the setting's |
 | `--min-chars` | `min-chars` | The shortest value searched for (`8`) |
 | `--no-encoded` | `encoded` | `false`: values as written only |
-| `--json`, `-q` | | JSON Lines, or no output but the exit code |
+| `--json`, `-q` | | JSON Lines, or the exit code and errors only |
 
 A project that commits an env file on purpose (Symfony's `.env`, Vite's `.env.production`, dotenvx) names those that hold its secrets: `env-files = [".env.local", ".env.*.local"]`.
 
 ## Requirements and security
 
 - **git 2.31** or later on `PATH`, and **2.45** in a partial clone, the first that can be kept from fetching. A CI container whose user does not own the checkout needs `git config --global --add safe.directory "$PWD"`.
-- **Python 3.11** or later, which `uvx` brings along. On Windows on ARM, use an x64 Python: the matcher omerta searches with, hyperscan, has no ARM wheels for Windows.
+- **Python 3.11** or later, which `uvx` brings along. On Windows on ARM, use an x64 Python: hyperscan, which omerta searches with, has no wheels for Windows on ARM.
 - **No network code**, no value in any output, error or git command line, and git run by its absolute path, never from inside the repository it checks. See [SECURITY.md](SECURITY.md).
 
 ## License

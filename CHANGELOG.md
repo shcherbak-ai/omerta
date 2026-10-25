@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - `omerta check`: fails when a value of the project's env files is in the index content of the staged changes, of the paths given, or with `--all` of every index entry.
 - `omerta history`: fails when such a value entered any path in the history, or is in a blob under a tag, or in the message of a commit or a tag.
 - The values are searched for as written, and as encoded in URLs, JSON and base64, in the files' content and in their paths; a tracked env file is reported as a leak.
-- Options `-C`, `--min-chars`, `--env-file`, `--ignore`, `--encoded`/`--no-encoded`, `--json` and `--quiet`, and their settings in `[tool.omerta]` of `pyproject.toml` or in `.omerta.toml`.
+- Options `-C`, `--min-chars`, `--env-file`, `--ignore`, `--encoded`/`--no-encoded`, `--json` and `--quiet`, and the settings `min-chars`, `env-files`, `ignore` and `encoded` in `[tool.omerta]` of `pyproject.toml` or in `.omerta.toml`.
 - A pre-commit hook, `omerta`.
 
 [Unreleased]: https://github.com/shcherbak-ai/omerta/commits/dev
