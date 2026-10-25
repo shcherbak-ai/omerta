@@ -12,7 +12,9 @@ import io
 import json
 import posixpath
 import re
+import shutil
 import socket
+import tempfile
 import threading
 import urllib.error
 import urllib.parse
@@ -29,6 +31,27 @@ from invoke.exceptions import Exit
 _ROOT = Path(__file__).parent
 _README = _ROOT / "README.md"
 
+# The repository's social preview: the drawing, and the picture made from it.
+_SOCIAL_PREVIEW = _ROOT / "social" / "github-social-preview.svg"
+
+# The browsers that can take that picture, by the names they have on a PATH
+# and by where Windows and macOS install them.
+_BROWSER_NAMES = (
+    "chrome",
+    "google-chrome",
+    "chromium",
+    "chromium-browser",
+    "msedge",
+    "microsoft-edge",
+)
+_BROWSER_PATHS = (
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+)
+
 
 def _port_in_use(port: int) -> bool:
     """Whether something already answers on ``localhost:port``."""
@@ -40,6 +63,14 @@ def _port_in_use(port: int) -> bool:
             if probe.connect_ex(address) == 0:
                 return True
     return False
+
+
+def _find_browser() -> str | None:
+    """A Chrome, Edge or Chromium on this machine, or ``None``."""
+    for name in _BROWSER_NAMES:
+        if found := shutil.which(name):
+            return found
+    return next((path for path in _BROWSER_PATHS if Path(path).is_file()), None)
 
 
 # GitHub's Markdown API renders the README's HTML, in the mode of a file in a
@@ -265,3 +296,45 @@ def readme_preview(c: Context, port: int = 9120) -> None:
         print("Ctrl+C stops them", flush=True)
         with contextlib.suppress(KeyboardInterrupt):
             servers[0].serve_forever()
+
+
+@task(name="social-preview")
+def social_preview(c: Context, browser: str = "") -> None:
+    """
+    Render social/github-social-preview.png from the SVG beside it.
+
+    A headless Chrome, Edge or Chromium takes the picture, at 1280 by 640
+    pixels. GitHub reads no file for it: upload the PNG in the repository's
+    settings.
+
+    Args:
+        browser: Path of the browser, where none is found
+
+    Example:
+        uv run inv social-preview
+        uv run inv social-preview --browser /usr/bin/brave-browser
+    """
+    browser = browser or _find_browser() or ""
+    if not browser:
+        raise Exit(
+            "No Chrome, Edge or Chromium was found. Name one: "
+            "uv run inv social-preview --browser PATH",
+            code=1,
+        )
+    png = _SOCIAL_PREVIEW.with_suffix(".png")
+    with tempfile.TemporaryDirectory() as scratch:
+        shot = Path(scratch) / png.name
+        # The browser takes absolute paths only, and exits with 0 when it
+        # wrote nothing. --disable-lcd-text keeps the coloured fringes of
+        # sub-pixel text rendering out of the picture.
+        result = c.run(
+            f'"{browser}" --headless --disable-lcd-text --hide-scrollbars'
+            " --force-device-scale-factor=1 --window-size=1280,640"
+            f' "--screenshot={shot}" "{_SOCIAL_PREVIEW.as_uri()}"',
+            hide=True,
+            warn=True,
+        )
+        if not shot.is_file():
+            raise Exit(f"{browser} wrote no image.\n{result.stderr}", code=1)
+        shutil.copyfile(shot, png)
+    print(f"Wrote {png.relative_to(_ROOT).as_posix()}")

@@ -94,6 +94,11 @@ Look at a change as GitHub will show it before pushing it. `uv run inv readme-pr
 - A reload sends the README to GitHub again when it has changed, once for both pages. GitHub allows 60 of those an hour without a token.
 - That rendering, in the mode of a file, shows an alert (`> [!NOTE]`) as a quote, where the repository's page shows an alert. For a README that has one, a second rendering in the mode of a comment gives the alerts, which take the quotes' places.
 
+`social/github-social-preview.svg` is the picture a link to the repository is shown with on other sites: the wordmark at rest, the README's heading, the tagline's first claim and the company's name, beside a pixel figure of a value of `.env` found in a file in git, and the wordmark's padlock. When one of these changes, change the SVG with it and render `social/github-social-preview.png` with `uv run inv social-preview`, which needs Chrome, Edge or Chromium (`--browser PATH` names one it does not find). GitHub reads no file for it: the maintainer uploads the PNG under Settings → General → Social preview.
+
+- The SVG names Segoe UI and Cascadia Mono first, the fonts of the Windows machine the committed PNG was rendered on. Elsewhere other fonts take their places and the lines change width: look at the PNG before uploading it.
+- In the SVG a rule in `<style>` outranks an attribute: set type sizes by class, and write no rule for `path`, which would override the art's fills.
+
 ## Releases
 
 The maintainer releases from `main`: `uv run cz bump` (the first release: `uv run cz bump 0.1.0`) rewrites the version fields, names the `## [Unreleased]` section of `CHANGELOG.md` after the new version with the day, and tags the commit. Pushing `main` and the tag (`git push --follow-tags`) starts a CI run for each, and the publish workflow uploads the release to PyPI once either passes: it publishes a commit of `main` that a `v*` tag points at.
