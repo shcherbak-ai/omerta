@@ -84,6 +84,7 @@ Look at a change as GitHub will show it before pushing it. `uv run inv readme-pr
 - The HTML is what GitHub's Markdown API returns for the file, so what GitHub removes from a README is removed here too.
 - The look comes from github-markdown-css, in GitHub's colours, each page in its theme whatever the browser is set to. The column is as wide as GitHub's at 1280 pixels and wider, and below 768.
 - A reload sends the README to GitHub again when it has changed, once for both pages. GitHub allows 60 of those an hour without a token.
+- That rendering, in the mode of a file, shows an alert (`> [!NOTE]`) as a quote, where the repository's page shows an alert. For a README that has one, a second rendering in the mode of a comment gives the alerts, which take the quotes' places.
 
 ## Releases
 
