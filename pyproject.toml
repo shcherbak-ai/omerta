@@ -1,0 +1,194 @@
+[project]
+name = "omerta"
+version = "0.0.0"
+description = "Fail when a value of your env files, e.g. an API key in .env, is in git: staged, tracked, or anywhere in the history"
+readme = "PYPI.md"
+authors = [
+    { name = "SergiiShcherbak", email = "sergii@shcherbak.ai" }
+]
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["secrets", "env", "dotenv", ".env", "git", "pre-commit", "leak", "api-key", "security", "secret-scanning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Environment :: Console",
+    "Typing :: Typed",
+]
+dependencies = [
+    # Findings depend on its parser: 1.2.4 parses `KEY= # comment` as empty,
+    # and 1.2.3 stopped a quoted value ending in an escaped backslash from
+    # swallowing the next lines. CI tests this bound.
+    "python-dotenv>=1.2.4,<2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/shcherbak-ai/omerta"
+Repository = "https://github.com/shcherbak-ai/omerta"
+Issues = "https://github.com/shcherbak-ai/omerta/issues"
+Changelog = "https://github.com/shcherbak-ai/omerta/blob/main/CHANGELOG.md"
+
+[project.scripts]
+omerta = "omerta.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "pytest-xdist>=3.6",
+    "coverage[toml]>=7.0",
+    "tethered>=1.0.0",
+    "pre-commit>=4.0",
+    "pre-commit-hooks>=6.0",
+    "ruff>=0.9",
+    "bandit>=1.8",
+    "ty>=0.0.33",
+    "interrogate>=1.7",
+    "vulture>=2.16",
+    "deptry>=0.25.1",
+    "commitizen>=4.13",
+    "invoke>=2.2",
+    "licenseal>=1.0.1",
+]
+
+[tool.uv]
+# A release enters uv.lock only a week after its upload, when a compromised one
+# has been found and removed.
+exclude-newer = "7 days"
+
+# Security fixes taken inside the cooldown, up to their uploads: the advisories
+# hook says when an entry is no longer needed.
+[tool.uv.exclude-newer-package]
+# 2026.10.19 drops the root CAs whose intermediate keys were compromised
+# (GHSA-6q48-6c7w-9gw2)
+certifi = "2026-10-20T02:25:00Z"
+# 21.14.13 escapes the --prompt value in the Bash activator (GHSA-cx6f-vjhg-g3cc)
+virtualenv = "2026-10-22T20:11:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["omerta"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__",
+]
+
+[tool.coverage.paths]
+source = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "S",      # flake8-bandit
+    "T20",    # flake8-print
+    "SIM",    # flake8-simplify
+    "FA",     # flake8-future-annotations (FA100: require from __future__ import annotations)
+]
+ignore = [
+    "S101",   # assert used (fine in tests)
+]
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
+known-first-party = ["omerta"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "T20"]
+"scripts/**/*.py" = ["T20"]
+"tasks.py" = ["T20"]
+
+[tool.ty.src]
+include = ["src"]
+exclude = ["tests"]
+
+[tool.deptry]
+known_first_party = ["omerta"]
+
+[tool.deptry.per_rule_ignores]
+DEP004 = [
+    "invoke",  # tasks.py, the development tasks
+]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
+
+[tool.vulture]
+paths = ["src"]
+min_confidence = 60
+# The command's entry point, which the console script calls.
+ignore_names = ["main"]
+
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-private = true
+ignore-semiprivate = true
+fail-under = 100
+exclude = ["tests", "node_modules"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.0.0"
+# Commitizen replaces the version on each line that the pattern after the colon
+# finds: anchored, so that `cff-version: 1.2.0` (the format of CITATION.cff)
+# keeps its own. The README and the package description pin a release in their
+# examples (`omerta@X.Y.Z`, `rev: vX.Y.Z`), which a bump moves too.
+version_files = [
+    "src/omerta/__init__.py:__version__",
+    "pyproject.toml:^version",
+    "CITATION.cff:^version:",
+    "README.md:omerta@|rev: v",
+    "PYPI.md:omerta@|rev: v",
+]
+tag_format = "v$version"
+annotated_tag = true
+major_version_zero = true
+# The hooks run after the version fields are rewritten and before the commit,
+# which takes in every changed file (`git commit -a`). scripts/date_release.py
+# names the `## [Unreleased]` section of the changelog after the new version,
+# with the day, and writes the day into CITATION.cff; the last hook checks both.
+pre_bump_hooks = [
+    "uv lock --no-upgrade",
+    "git add uv.lock",
+    "uv run python scripts/date_release.py",
+    "uv run pytest tests/test_changelog.py -q -p no:cacheprovider",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14"]
+build-backend = "uv_build"

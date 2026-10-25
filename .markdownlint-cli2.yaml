@@ -1,0 +1,15 @@
+config:
+  no-duplicate-heading:
+    siblings_only: true
+  line-length: false
+  first-line-heading: false
+  table-column-style: false
+  no-inline-html:
+    allowed_elements:
+      - p
+      - img
+      - a
+      - strong
+      - br
+      - h1
+      - sup

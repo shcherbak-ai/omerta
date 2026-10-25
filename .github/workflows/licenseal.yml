@@ -1,0 +1,40 @@
+name: License compatibility
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.13.4"
+
+jobs:
+  licenseal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python from .python-version
+        run: uv python install
+
+      # --locked: fail when uv.lock does not match pyproject.toml.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # The package's own dependencies: the development tools never ship.
+      # LICENSES.md is this check's report, written by hand with the same
+      # options in each change that moves a dependency.
+      - name: licenseal check
+        run: uv run licenseal check --no-dev

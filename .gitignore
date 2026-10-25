@@ -1,0 +1,73 @@
+# uv.lock, package-lock.json and .python-version are committed. A leading slash
+# anchors a path to the project's root.
+
+# Python: bytecode, compiled extensions, and what a build writes
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+/build/
+/dist/
+/wheelhouse/
+
+# uv's virtual environment
+.venv/
+
+# Tests and coverage
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+
+# Linters
+.ruff_cache/
+
+# Development tools that npm installs (package.json)
+node_modules/
+
+# Secrets: environment files are committed only as their .example templates
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+credentials.json
+token.json
+
+# Agents. Claude Code's settings.json, hooks, skills, commands and rules are
+# shared; its local settings, worktrees and plans belong to one machine.
+.claude/settings.local.json
+.claude/worktrees/
+.claude/plans/
+.cursor/plans/
+# The licenseal review skill, installed from the locked licenseal version
+.claude/skills/licenseal-review/
+.agents/skills/licenseal-review/
+# Temporary files that Claude Code can leave in the project
+tmpclaude*
+# What the agents' browser (Playwright MCP) saves
+/.playwright-mcp/
+
+# Editors. The extensions a project recommends and the settings it shares are
+# committed; delete the settings line where they stay personal.
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# Operating systems
+.DS_Store
+Thumbs.db
+Desktop.ini
+# Office's lock file beside an open document
+~$*
+# A file named nul, left when a Windows shell takes a redirect to /dev/null
+# for a file name
+nul
+NUL

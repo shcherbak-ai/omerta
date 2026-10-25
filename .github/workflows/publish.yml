@@ -1,0 +1,128 @@
+name: Publish
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: publish-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.13.4"
+
+jobs:
+  publish-gate:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      should_publish: ${{ steps.check.outputs.should_publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify v* tag on main
+        id: check
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+
+          # Check for an actual v* tag pointing at this commit
+          TAG=$(git tag --points-at "$SHA" | grep '^v' | head -n1)
+          if [ -z "$TAG" ]; then
+            echo "::notice::No v* tag at $SHA — skipping."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Verify the tagged commit is on main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::notice::Tag $TAG is not on main — skipping."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Publishing $TAG ($SHA)"
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [publish-gate]
+    if: needs.publish-gate.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python from .python-version
+        run: uv python install
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      # Uploaded before the smoke test, the first step to run code of the
+      # dependencies, so that what is published is what was built. The
+      # publish job still waits for the test.
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: dist
+          path: dist/*
+
+      # Smoke-test the built wheel: install it into a fresh venv and run the
+      # command's --version, then check a repository from outside the
+      # checkout. Its dependencies are the versions of uv.lock, which the
+      # tests ran on, checked by their hashes: none is resolved afresh.
+      - name: Verify wheel install
+        run: |
+          uv export --locked --no-default-groups --no-emit-project --output-file /tmp/requirements.txt
+          uv venv /tmp/wheel-verify
+          uv pip install --python /tmp/wheel-verify/bin/python --require-hashes -r /tmp/requirements.txt
+          uv pip install --python /tmp/wheel-verify/bin/python --no-deps dist/omerta-*.whl
+          uv pip check --python /tmp/wheel-verify/bin/python
+          /tmp/wheel-verify/bin/omerta --version
+          mkdir /tmp/smoke && cd /tmp/smoke && git init -q
+          printf 'API_KEY=sk-smoke-0123456789abcdef\n' > .env
+          printf 'key = "sk-smoke-0123456789abcdef"\n' > app.py && git add app.py
+          set +e; /tmp/wheel-verify/bin/omerta check; status=$?; set -e
+          test "$status" -eq 1
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish to PyPI
+        # 1.14.3 uploads with a certifi that no longer trusts the compromised
+        # emSign CAs.
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
+        with:
+          # A tag push and main push at the same SHA produce two CI runs and
+          # thus two publish runs; the concurrency group cancels the duplicate,
+          # but skip-existing makes a same-version re-upload a no-op rather than
+          # a hard failure if the cancelled run already uploaded.
+          skip-existing: true

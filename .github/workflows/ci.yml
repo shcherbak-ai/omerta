@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+# Note: the publish workflow (.github/workflows/publish.yml) triggers
+# via workflow_run after CI succeeds. A tag push and main push may both
+# trigger CI; the publish workflow uses a concurrency group to cancel
+# the duplicate.
+
+permissions:
+  contents: read
+
+env:
+  # 0.13.4 is younger than the week of the cooldown, and fixes the CA store
+  # of 0.13.0 to 0.13.3 (GHSA-hq85-5cpj-mr62).
+  UV_VERSION: "0.13.4"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python from .python-version
+        run: uv python install
+
+      # --locked: fail when uv.lock does not match pyproject.toml, where a
+      # plain sync would resolve again and run other versions of the tools.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # markdownlint, at the version of package-lock.json, on the runner's Node
+      # (no install scripts: .npmrc).
+      - name: Install the development tools of package.json
+        run: npm ci --no-audit --no-fund
+
+      # Without the check of advisories, which fails on an advisory of the
+      # day, whatever the commit.
+      - name: Run pre-commit checks (ruff, ty, bandit, interrogate, markdownlint, omerta)
+        run: uv run pre-commit run --all-files
+        env:
+          SKIP: advisories
+
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      # .python-version pins the development interpreter. Without this, a
+      # plain `uv run` rebuilds the environment on that pin, and every cell
+      # of the matrix tests the same Python.
+      UV_PYTHON: ${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }}
+
+      # Fails the cell when .python-version, not the matrix, chose the
+      # interpreter the tests run on.
+      - name: Check the tests run on Python ${{ matrix.python-version }}
+        run: uv run python -c "import sys; found = '%d.%d' % sys.version_info[:2]; assert found == '${{ matrix.python-version }}', found"
+
+      - name: Show the git the tests run with
+        run: git --version
+
+      - name: Run tests with coverage
+        run: uv run pytest -n auto --cov=omerta --cov-report=xml --cov-report=term-missing --cov-fail-under=100
+
+      - name: Extract coverage percentage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        id: coverage
+        run: |
+          RATE=$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('coverage.xml').getroot().get('line-rate'))")
+          PCT=$(python3 -c "print(round(float('$RATE') * 100))")
+          echo "pct=$PCT" >> "$GITHUB_OUTPUT"
+
+      - name: Update coverage badge
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14' && github.ref == 'refs/heads/main'
+        uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910  # v1.9.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          filename: omerta-coverage.json
+          label: coverage
+          message: ${{ steps.coverage.outputs.pct }}%
+          valColorRange: ${{ steps.coverage.outputs.pct }}
+          minColorRange: 50
+          maxColorRange: 100
+
+  # The lowest python-dotenv the package admits: its parser decides which
+  # values are searched for. In a throwaway environment synced from the lock,
+  # with the bound installed over it.
+  lower-bounds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/../lower-bounds-venv
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python from .python-version
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Install the lowest python-dotenv
+        run: |
+          uv pip install --python "$UV_PROJECT_ENVIRONMENT" "python-dotenv==1.2.4"
+          uv pip check --python "$UV_PROJECT_ENVIRONMENT"
+
+      - name: Run tests
+        run: uv run --no-sync pytest -n auto

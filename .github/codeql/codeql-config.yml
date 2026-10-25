@@ -1,0 +1,3 @@
+# The package only: the tests, scripts and tasks run no untrusted input.
+paths:
+  - src

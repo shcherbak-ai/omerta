@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "omerta"
+abstract: "Fail when a value of your env files, e.g. an API key in .env, is in git: staged, tracked, or anywhere in the history"
+version: 0.0.0
+license: MIT
+repository-code: "https://github.com/shcherbak-ai/omerta"
+url: "https://github.com/shcherbak-ai/omerta"
+authors:
+  - family-names: "Shcherbak"
+    given-names: "Sergii"
+keywords:
+  - secrets
+  - env
+  - dotenv
+  - git
+  - pre-commit
+  - leak
+  - api-key
+  - security
+  - secret-scanning
