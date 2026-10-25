@@ -114,3 +114,23 @@ jobs:
           valColorRange: ${{ steps.coverage.outputs.pct }}
           minColorRange: 50
           maxColorRange: 100
+
+  # The one check that the branch ruleset requires of a pull request, so that
+  # a change to the matrix never leaves it waiting for a job that is gone. It
+  # runs whatever the jobs before it did, as a skipped required check counts as
+  # passed, and passes only when each of them passed (a matrix job's result is
+  # that of all its cells).
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check that every job passed
+        env:
+          LINT: ${{ needs.lint.result }}
+          TEST: ${{ needs.test.result }}
+        run: |
+          echo "lint: $LINT, test: $TEST"
+          [ "$LINT" = success ] && [ "$TEST" = success ]
