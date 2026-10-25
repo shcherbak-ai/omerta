@@ -4,7 +4,7 @@
 
 <h1 align="center">Fail when a value of your env files,<br>e.g. an API key in .env, is in git</h1>
 
-<p align="center">Your own values, not lookalikes · Staged, tracked or in the history · Never printed</p>
+<p align="center">Your own values, not lookalikes · Staged, tracked or in the history · Offline,&nbsp;never&nbsp;printed</p>
 
 <p align="center">
 <a href="https://pypi.org/project/omerta/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/omerta?style=flat-square&labelColor=18181b&color=047857"></a>
@@ -27,7 +27,7 @@
 <sup>Illustrative: omerta names the variable, never the value.</sup>
 </p>
 
-Pattern scanners such as gitleaks and TruffleHog find what looks like a key; omerta finds *your* keys. It reads the values of your env files and fails when one is in git, as written or encoded in URLs, JSON and base64, so it catches secrets of any format: a small provider's key, a cloud bucket's name, an organisation ID.
+Pattern scanners such as gitleaks and TruffleHog find what looks like a key; omerta finds *your* keys. It reads the values of your env files and fails when one is in git, as written or encoded in URLs, JSON and base64, so it catches secrets of any format: a small provider's key, a cloud bucket's name, an organisation ID. It runs entirely offline.
 
 ## Quick start
 
@@ -157,7 +157,7 @@ A project that commits an env file on purpose (Symfony's `.env`, Vite's `.env.pr
 
 - **git 2.31** or later on `PATH`, and **2.45** in a partial clone, the first that can be kept from fetching. A CI container whose user does not own the checkout needs `git config --global --add safe.directory "$PWD"`.
 - **Python 3.11** or later, which `uvx` brings along. On Windows on ARM, use an x64 Python: hyperscan, which omerta searches with, has no wheels for Windows on ARM.
-- **No network code**, no value in any output, error or git command line, and git run by its absolute path, never from inside the repository it checks. See [SECURITY.md](SECURITY.md).
+- **Security:** git is run by its absolute path, never from inside the repository it checks, and is never given a value on its command line. See [SECURITY.md](SECURITY.md).
 
 ## License
 

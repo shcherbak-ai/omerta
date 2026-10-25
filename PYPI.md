@@ -9,7 +9,7 @@ uvx omerta history        # every commit, tag and message
 
 - Matches your actual values, as written and as encoded in URLs, JSON and base64, so it catches secrets of any format; it complements pattern scanners, which find what looks like a key.
 - Reports the file, the line and the variable's name, never the value; a tracked env file is a leak in itself.
-- No network: git never fetches for it.
+- Runs entirely offline.
 
 As a pre-commit hook:
 
