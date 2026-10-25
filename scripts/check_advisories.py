@@ -18,7 +18,10 @@ It asks osv.dev for the advisories of each version of ``uv.lock`` and
 of the uv that runs here. A known vulnerability or a report of a malicious
 package fails the check, but for the advisories of ``ACCEPTED_ADVISORIES``,
 with their reasons. A report of a malicious package (``MAL-``) is never
-accepted, and an accepted advisory of no checked version fails the check.
+accepted, and an accepted advisory of no checked version fails the check. An
+advisory accepted while its fix waits out the cooldown carries the fix's
+upload: the check warns of it until the cooldown admits the fix, and then
+fails until the entry is removed.
 
 It runs at each commit, as an advisory can come out between two commits. CI
 skips it (``SKIP``), where its result would depend on the day rather than on
@@ -35,6 +38,8 @@ import datetime
 import json
 import re
 import shutil
+
+# uv runs by the absolute path found, with an argument of its own and no shell.
 import subprocess  # nosec B404
 import sys
 import tomllib
@@ -49,16 +54,21 @@ ROOT = Path(__file__).resolve().parent.parent
 COOLDOWN_DAYS = 7
 
 # The advisories of checked versions that the check accepts, by their IDs at
-# osv.dev, with the reasons: a vulnerability that no version the ranges admit
-# fixes. A report of a malicious package (MAL-) is never accepted.
+# osv.dev, each with its reason: a vulnerability that no version the ranges
+# admit fixes. Where the fix waits out the cooldown, the entry also carries its
+# upload, in UTC: the check fails once the cooldown admits it, so that the fix
+# is taken and the entry removed. A report of a malicious package (MAL-) is
+# never accepted.
 _MARKDOWNLINT_0_24 = (
     "a slow parse of the repository's own Markdown or TOML in markdownlint-cli2, fixed in "
-    "0.24.0, which the cooldown admits from 2026-10-28: then raise its range in package.json"
+    "0.24.0: raise its range in package.json",
+    "2026-10-21T06:59:51Z",
 )
-ACCEPTED_ADVISORIES: dict[str, str] = {
+ACCEPTED_ADVISORIES: dict[str, tuple[str, str | None]] = {
     "GHSA-238p-pmpm-9mq7": (
         "katex, through markdownlint: low severity, fixed in 0.18.2 only, which "
-        "micromark-extension-math (^0.16.0) does not admit"
+        "micromark-extension-math (^0.16.0) does not admit",
+        None,
     ),
     "GHSA-gfr2-rv44-r23c": _MARKDOWNLINT_0_24,
     "GHSA-r7fv-28h4-cvq7": _MARKDOWNLINT_0_24,
@@ -159,6 +169,33 @@ def _cooldown(pyproject: dict, lock: dict, now: datetime.datetime) -> tuple[list
     return findings, warnings
 
 
+def _waiting_fixes(now: datetime.datetime) -> tuple[list[str], list[str]]:
+    """Check the accepted advisories whose fixes wait out the cooldown.
+
+    Returns what fails the check, a fix that the cooldown admits now, and what
+    it warns of, a fix that it does not admit yet.
+    """
+    cooldown = datetime.timedelta(days=COOLDOWN_DAYS)
+    waiting: dict[tuple[str, str], list[str]] = {}
+    for advisory, (reason, upload) in ACCEPTED_ADVISORIES.items():
+        if upload is not None:
+            waiting.setdefault((upload, reason), []).append(advisory)
+    findings = []
+    warnings = []
+    for (upload, reason), advisories in waiting.items():
+        moment = datetime.datetime.fromisoformat(upload)
+        due = moment.replace(tzinfo=moment.tzinfo or datetime.UTC) + cooldown
+        listed = ", ".join(advisories)
+        if now >= due:
+            findings.append(f"{listed}: the cooldown admits the fix now ({reason}): remove them")
+        else:
+            warnings.append(
+                f"ACCEPTED_ADVISORIES accepts {listed} until the cooldown admits the fix, from "
+                f"{due:%Y-%m-%d %H:%M} UTC: {reason}"
+            )
+    return findings, warnings
+
+
 def _uv_versions() -> set[str]:
     """The uv versions in use: those the workflows pin, and the one that runs here."""
     versions = set()
@@ -206,12 +243,13 @@ def _advisories(packages: list[tuple[str, str, str]]) -> tuple[list[str], set[st
         {"package": {"ecosystem": ecosystem, "name": name}, "version": version}
         for ecosystem, name, version in packages
     ]
-    request = urllib.request.Request(  # noqa: S310
+    request = urllib.request.Request(  # noqa: S310 - the fixed https address of osv.dev
         OSV_QUERY_BATCH,
         data=json.dumps({"queries": queries}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
     try:
+        # The fixed https address of osv.dev
         with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310  # nosec B310
             results = json.load(response)["results"]
     except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as e:
@@ -243,9 +281,10 @@ def main() -> int:
     try:
         pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
-        cooldown_findings, warnings = _cooldown(
-            pyproject, lock, datetime.datetime.now(datetime.UTC)
-        )
+        now = datetime.datetime.now(datetime.UTC)
+        cooldown_findings, warnings = _cooldown(pyproject, lock, now)
+        fix_findings, fix_warnings = _waiting_fixes(now)
+        warnings += fix_warnings
         advisories, seen = _advisories(_checked_packages(lock))
     except _CheckError as e:
         print(e)
@@ -262,6 +301,7 @@ def main() -> int:
         "ACCEPTED_ADVISORIES: advisories of no checked version, to remove": sorted(
             ACCEPTED_ADVISORIES.keys() - seen
         ),
+        "ACCEPTED_ADVISORIES: fixes the cooldown admits, to take": fix_findings,
     }
     for title, lines in findings.items():
         if lines:
