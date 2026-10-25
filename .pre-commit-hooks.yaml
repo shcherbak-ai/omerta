@@ -5,7 +5,7 @@
 # and `types_or`.
 - id: omerta
   name: omerta
-  description: Fail when a value of your env files, e.g. an API key in .env, is in a staged file.
+  description: "Catch .env secrets leaking into git: fails when an API key or any value of your env files is in a staged file."
   entry: omerta check
   language: python
   types: []

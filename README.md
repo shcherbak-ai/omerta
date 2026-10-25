@@ -2,7 +2,7 @@
 <img src="assets/omerta-wordmark.svg" alt="omerta" width="336">
 </p>
 
-<h1 align="center">Fail when a value of your env files,<br>e.g. an API key in .env, is in git</h1>
+<h1 align="center">Catch .env secrets leaking into git</h1>
 
 <p align="center">Your own values, not lookalikes · Staged, tracked or in the history · Offline,&nbsp;never&nbsp;printed</p>
 

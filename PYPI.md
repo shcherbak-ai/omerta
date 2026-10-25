@@ -1,6 +1,6 @@
 # omerta
 
-Fail when a value of your env files, e.g. an API key in `.env`, is in git: in the staged changes, in a tracked file, or anywhere in the history.
+Catch `.env` secrets leaking into git: a pre-commit hook and CLI that fails when an API key or any value of your env files is staged, tracked or anywhere in the history.
 
 ```bash
 uvx omerta check --all    # every tracked file

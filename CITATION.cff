@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "omerta"
-abstract: "Fail when a value of your env files, e.g. an API key in .env, is in git: staged, tracked, or anywhere in the history"
+abstract: "Catch .env secrets leaking into git: a pre-commit hook and CLI that fails when an API key or any value of your env files is staged, tracked or anywhere in the history. Your real values, not patterns."
 version: 0.1.0
 date-released: 2026-10-25
 license: MIT
