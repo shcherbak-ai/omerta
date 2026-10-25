@@ -47,8 +47,9 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # Without the check of advisories, which fails on an advisory of the
-      # day, whatever the commit.
-      - name: Run pre-commit checks (ruff, ty, bandit, interrogate, markdownlint, omerta)
+      # day, whatever the commit. With licenseal's check of the licences,
+      # which the publish workflow then waits for.
+      - name: Run pre-commit checks (ruff, ty, bandit, interrogate, licenseal, markdownlint, omerta)
         run: uv run pre-commit run --all-files
         env:
           SKIP: advisories

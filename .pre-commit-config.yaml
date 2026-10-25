@@ -79,6 +79,16 @@ repos:
         pass_filenames: false
         always_run: true
         verbose: true
+      # The licences of the package's own dependencies, of which LICENSES.md
+      # is the report. Only where a commit changes them, as licenseal asks PyPI
+      # for each package; CI's run over all files has them, at every push, so
+      # a release waits for it.
+      - id: licenseal
+        name: licenseal
+        entry: uv run licenseal check --no-dev
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
       - id: interrogate
         name: interrogate
         entry: uv run interrogate src/

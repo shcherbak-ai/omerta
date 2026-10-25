@@ -30,6 +30,7 @@ Run automatically on every commit:
 - **deptry**: dependency declaration/import consistency
 - **uv lock check**: `uv.lock` matches `pyproject.toml`
 - **advisories**: a release enters `uv.lock` and `package-lock.json` only a week after its upload, and no locked version, nor the uv that the workflows pin, has an advisory at [osv.dev](https://osv.dev) (below)
+- **licenseal**: the licences of the package's own dependencies, at a commit that changes `pyproject.toml` or `uv.lock`, as it asks PyPI for each package ([below](#dependency-licenses))
 - **bandit**: security analysis
 - **markdownlint**: Markdown linting, with the version of `package-lock.json` (`npm ci` installs it)
 - **interrogate**: docstring coverage on `src/`
@@ -73,7 +74,7 @@ uv run pytest -n 8 --cov=omerta --cov-report=term-missing
 
 ## Dependency licenses
 
-[LICENSES.md](LICENSES.md) is the report of the license check that CI runs on the package's own dependencies (`licenseal.yml`). Write it again in the change that moves a dependency:
+[LICENSES.md](LICENSES.md) is the report of the licenseal hook, which checks the package's own dependencies at a commit that changes them, and in CI at every push. Write it again in the change that moves a dependency:
 
 ```bash
 uv run licenseal check --no-dev -f markdown -o LICENSES.md
