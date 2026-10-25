@@ -1,12 +1,14 @@
-<h1 align="center">omerta</h1>
+<p align="center">
+<img src="assets/omerta-wordmark.svg" alt="omerta" width="336">
+</p>
 
-<p align="center"><strong>Fail when a value of your env files, e.g. an API key in .env, is in git.</strong></p>
+<h1 align="center">Fail when a value of your env files,<br>e.g. an API key in .env, is in git</h1>
 
 <p align="center">Your own values, not lookalikes · Staged, tracked or in the history · Never printed</p>
 
 <p align="center">
-<a href="https://pypi.org/project/omerta/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/omerta?style=flat-square&labelColor=18181b&color=7c3aed"></a>
-<a href="https://pypi.org/project/omerta/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/omerta?style=flat-square&labelColor=18181b&color=7c3aed"></a>
+<a href="https://pypi.org/project/omerta/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/omerta?style=flat-square&labelColor=18181b&color=047857"></a>
+<a href="https://pypi.org/project/omerta/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/omerta?style=flat-square&labelColor=18181b&color=047857"></a>
 <a href="https://github.com/shcherbak-ai/omerta/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shcherbak-ai/omerta/ci.yml?branch=main&style=flat-square&labelColor=18181b&label=CI"></a>
 </p>
 
@@ -189,6 +191,8 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 ## License
 
 [MIT](LICENSE)
+
+<p align="center"><img src="assets/omerta-separator.svg" alt="" width="446" height="22"></p>
 
 ## More from shcherbak_ai
 
