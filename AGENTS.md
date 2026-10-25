@@ -1,0 +1,154 @@
+# AGENTS.md: omerta
+
+Guidelines for AI coding assistants and contributors. Nothing is built yet: this file is the brief for the first sessions, and every decision it needs is made below. Keep it current as the project takes shape, and keep it the only instructions file (no `CLAUDE.md`; `README.md` is for users).
+
+## What omerta is
+
+A command-line tool that fails when a value of the project's env files, e.g. an API key in `.env`, is in git: in the staged changes, in a tracked file, or anywhere in the history. It matches your actual values as they are written, and as they are encoded in URLs, JSON and base64, so it catches secrets of any format (a key of a small provider, the name of a cloud resource, an organisation ID), and what it reports is always one of your values, byte for byte, never something that only looks like a key. It complements pattern scanners such as gitleaks, TruffleHog and detect-secrets, which find what looks like a key, not your keys. The name is the code of silence: your secrets never speak in git.
+
+Prior art, and why it does not cover this: `detect-aws-credentials` of pre-commit-hooks matches real values, but reads AWS credentials only, and prints the first four characters of each; `git-secrets` (AWS Labs) takes values from a command, but as regular expressions, and is a bash tool outside PyPI; `nosecrets` on PyPI is a pattern scanner.
+
+## Scope
+
+Hard limits, which keep the tool small and its output exact:
+
+- **Secrets come from env files only.** Not the environment of the process, cloud credential files, keyrings or vaults.
+- **The search is in git only.** The index (the default, for pre-commit), and the history (`history`): its blobs and the messages of its commits and tags. Not untracked or ignored files, other folders or remote repositories.
+- **Exact values only**, in the forms below. No patterns, no entropy, no checking a key against its provider, and no decompressing (a gzipped response body in a recorded test, an archive).
+- **No network.** omerta has no network code. Its one possible path is git: in a partial clone (a repository with a promisor remote: `extensions.partialClone` set, or a `remote.<name>.promisor` that is true), git fetches a missing object when it is read. omerta always runs git with `GIT_NO_LAZY_FETCH=1`, so a missing object is an error, never a fetch. git honours that variable from 2.45: omerta reads `git version` first, and in a partial clone exits `2` on an older git. In any other repository nothing can be fetched and git 2.31 (`--diff-merges`) is enough, so the stock git of Ubuntu 24.04 (2.43) and Debian 12 (2.39) works.
+- **No value ever leaves the process.** Not in the output, an error, a log line or the text of an exception, not even its first characters, and not on the command line of git, where other users of the machine can see it in the process list.
+
+## Commands
+
+| Command | Searches |
+| --- | --- |
+| `omerta check` | The staged changes: the index content of the files added, copied, modified, renamed or changed in type (`git diff --cached --name-only -z --diff-filter=ACMRTUXB`); on a branch with no commit yet, every index entry |
+| `omerta check PATH ...` | The index content of the paths, whether they are changed or not. pre-commit passes the staged files at a commit, and every tracked file with `--all-files` |
+| `omerta check --all` | The index content of every entry (`git ls-files -s -z`) |
+| `omerta history` | Every blob reachable from any ref and `HEAD` (`git rev-list --objects --all`), each read once (`git cat-file --batch`), and the message of every commit and annotated tag |
+
+- **The repository** is the one that contains the current folder (`git rev-parse --show-cdup`: a relative path reads the same whatever form a git prints absolute paths in, and Cygwin's and MSYS2's print POSIX ones). Outside a repository, omerta exits `2`.
+- **PATH arguments** are literal pathspecs (`GIT_LITERAL_PATHSPECS=1`), relative to the current folder: a folder selects the index entries under it, a path that is in no index entry selects nothing, and a path outside the repository is a usage error. PATHs together with `--all` are a usage error.
+- **Index entries:** gitlinks (submodules) are skipped; a symbolic link is searched as git stores it (the text of its target); a Git LFS file as its pointer, which is what git holds. An unmerged entry is searched in each of its stages, and reported once, at the first occurrence in the lowest stage that holds the value. An entry whose object cannot be read is an error.
+- **`history`** reports a value where it enters a path: at each commit whose new version of a file holds the value while the version it replaces at that path does not (there is none, or it lacks the value in every searched form). It reads each blob once, then makes one pass over the history: `git -c log.showSignature=false log --all --root --no-abbrev --raw -z --no-renames --no-color --diff-merges=combined --format=%H` (no value on the command line). With `--no-renames` a renamed file is a deletion and an addition, so the value is reported again at its new path. A merge is listed only for the paths whose result differs from every parent, with each parent's version: it is reported where the value is in the result and in none of those versions, so a value that a merge brings in from a branch is reported at the branch's commit. A tracked env file is reported at the commits that add its path.
+- **Blobs that no commit writes**, those under a ref or tag that points at a tree or a blob, are reported with the blob ID in place of a commit, at the path that `git rev-list --objects` gives (with `-z` from git 2.50; an older git cuts a path at a newline), or with no path for a blob that a ref points at.
+- **Messages:** `history` searches the message of every commit and annotated tag, the text after its header lines: not the author, committer or tagger, since an email address in an env file would match every commit.
+- **A shallow repository** (`git rev-parse --is-shallow-repository`) is an error for `history`: its history stops at the cut, and a search of it would pass. In CI, check out with `fetch-depth: 0`. In a partial clone, `history` fails at the first blob that was never fetched. `history` takes no PATHs.
+- **git** is run by its absolute path, found by searching the folders of `PATH` in order for `git.exe` on Windows and `git` elsewhere. Skipped are relative entries, the folder omerta starts in, the `-C` folder, and any folder inside the repository, which omerta finds before running git by looking upwards for `.git` (a folder or a file), comparing paths after `os.path.realpath` and `os.path.normcase`; once `git rev-parse --show-cdup` has answered, a git inside the repository it names is an error. Windows otherwise searches the program's folder and the current folder before `PATH`, so a `git.exe` in the checked repository could run (under `uv run` the program's folder is `.venv\Scripts`, inside the repository).
+- **git's environment:** omerta inherits `GIT_INDEX_FILE`, which `git commit -a` sets, made absolute against the folder omerta starts in; sets `GIT_NO_LAZY_FETCH=1`, `GIT_LITERAL_PATHSPECS=1` and `GIT_NO_REPLACE_OBJECTS=1` (a replace ref would hide the original blob); and removes `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS` and `GIT_ICASE_PATHSPECS`, which git refuses beside the literal one. The user's git configuration applies, except where omerta sets an option on git's command line itself, so that no setting changes what the commands print: every command that prints paths takes `-z`; `git diff` and `git log` take `--no-renames` and `--no-color`, and `git diff` also `--no-relative` (`diff.relative` would limit it to the current folder); `git ls-files` takes `--full-name`; and `git log` the `-c log.showSignature=false` and `--diff-merges` above.
+
+### Options
+
+`-C PATH`, `--version` and `-h` come before the command, as in git; the others after it, where pre-commit puts its `args`.
+
+| Option | Effect |
+| --- | --- |
+| `-C PATH` | Run as if started in `PATH`, as `git -C` does: PATH arguments are then relative to it |
+| `--min-chars N` | The shortest value searched for, in characters (default `8`) |
+| `--env-file PATTERN` | An env file pattern, repeatable |
+| `--ignore NAME` | A variable not searched for, e.g. one that holds a public endpoint, repeatable |
+| `--encoded`, `--no-encoded` | Search the URL, JSON and base64 forms too (the default), or the plain forms only |
+| `--json` | Findings as JSON Lines (below) |
+| `-q`, `--quiet` | No findings printed; the exit code says it. Errors are still written to stderr |
+| `--all` | For `check`, as above |
+
+An option overrides the setting of the same name in the configuration (below), which overrides the default, except `--ignore`, whose names are added to the configured ones.
+
+## Output and exit codes
+
+- Findings go to stdout. A value found gives one line per file, variable and env file, at the line of its first occurrence in the file, counted from 1 in the searched content:
+  - `path:line: VARIABLE (from .env.local)` for `check`, the path relative to the root of the repository, with `/`;
+  - `commit path: VARIABLE (from .env)` for `history`, with the full commit ID, or the blob ID where no commit writes the blob, and `blob: VARIABLE (from .env)` for a blob with no path;
+  - `commit (message): VARIABLE (from .env)` for a message, with the commit's or the tag's object ID;
+  - `path: tracked env file` for `check`, and `commit path: tracked env file` for `history` (below).
+- Lines are sorted by path, as bytes (git's order), then variable, then env file, in the order of the patterns and then of the paths; a path's `tracked env file` line comes first. For `history`, then by the order in which `git log` lists the commits (newest first), blob IDs last. Lines without a path (a blob with none, a message) come after the others, sorted by object ID, then variable, then env file.
+- A path (an env file's too) or a variable name that has `"`, `\`, a control character (a byte below 0x20, or DEL), or bytes that are not UTF-8 is quoted as git quotes paths: in double quotes, with `\a`, `\b`, `\t`, `\n`, `\v`, `\f`, `\r`, `\"` and `\\`, and octal escapes (`\377`) for the other control characters and the bytes that are not UTF-8. Others, non-ASCII ones included, are printed as they are, in UTF-8.
+- With `--json`, one object per line instead, with its keys in the order shown and its strings in the same form as the text (a quoted path stays quoted): `{"path", "line", "variable", "env_file", "form"}` for `check`; for `history`, `commit` (or `blob`) in place of `line`, and `"path": null` for a blob with no path; `{"commit", "message": true, "variable", "env_file", "form"}` for a message (`tag` in place of `commit` for a tag's); `{"path", "tracked_env_file": true}`, with `commit` (or `blob`) before `tracked_env_file` for `history`. `form` is `plain`, `url`, `json` or `base64`, that of the first occurrence.
+- Errors go to stderr, without values: e.g. a `.env` that is not UTF-8 is reported with its path, without the bytes in question. When git fails, the error names its subcommand and exit status, followed by git's stderr with every searched form replaced by its variable name; when git succeeds, its stderr is dropped. Nothing else goes to stdout or stderr.
+- Exit codes: `0` nothing found, `1` a value or a tracked env file found, `2` an error (usage, configuration, outside a repository, git older than 2.31, or than 2.45 in a partial clone, a shallow repository for `history`, an env file or an object that cannot be read, any other failure of git), which wins over findings. On an error, the findings made before it are printed, then the error.
+
+## Env files and values
+
+- **Patterns:** by default `.env` and `.env.*`, relative to the root of the repository, with `/`. A pattern is matched part by part (between the `/`): a part is matched with `fnmatch.fnmatchcase`, case-sensitively on every platform and Python version, where `*` and `?` stay within the part, and a part that is exactly `**` matches any number of folders. A pattern that is absolute, has a `..` part, or has `**` within a part (e.g. `.env**`) is a configuration error.
+- **Sources:** the files of the working tree that match the patterns and that git does not track, found by walking the folders of the patterns with `os.scandir`, never entering `.git`. A folder is skipped (a virtual environment named `.env` is common), a symbolic link to a file is read through, one to a folder is not followed, a folder that holds a `.git` (a submodule, a nested repository) is not entered, and templates (`*.example`, `*.sample`, `*.template`) are never sources.
+- **A tracked env file is a leak:** an index entry, or for `history` a path that a commit adds, that matches the patterns, other than a template, is reported as one, among the entries that the command searches. This holds with no source at all: in CI, a committed `.env` is checked out, tracked, and reported. When there is no source, no value is searched for, and only tracked env files can be found. A project that commits an env file on purpose (Symfony's `.env`, Vite's `.env.production`, an encrypted dotenvx `.env`, a `.env.vault`) sets `env-files` to the files that hold its secrets, e.g. `[".env.local", ".env.*.local"]`; the README says so.
+- **Decoding:** omerta reads each env file's bytes and decodes them itself: as UTF-16 when they start with a UTF-16 byte order mark (PowerShell 5.1 writes `>` that way), otherwise as UTF-8, with or without a byte order mark. Bytes that do not decode are an error. Line ends are then made `\n` (`\r\n` and a lone `\r`), as Python's text mode reads a file, so a multi-line value is the same text whatever line ends its env file has.
+- **Parsing:** with python-dotenv's parser, `dotenv.parser.parse_stream(io.StringIO(text))`: quotes, `export` and comments are parsed, `${VAR}` is not expanded (no values from the process; `dotenv_values(..., interpolate=False)` gives the same values, except that it keeps only the last of a key given twice, where omerta searches each), and a value is not stripped beyond what python-dotenv does. A statement that python-dotenv cannot parse (`binding.error`) is an error, reported with the env file and the number of the statement's first non-blank line (python-dotenv's own line counts the blank lines before it), never the text. A key without a value has none to search for.
+- **Several files:** each value is reported with the env file it comes from. When env files give one variable the same value, the line names the first of them, in the order of the patterns, then of the paths.
+- **Left out:** values shorter than `--min-chars` characters (code points), which are placeholders, flags and ports (`DUMMY`, `true`, `5432`), and the variables of `--ignore`, whose names are matched exactly. A short value is part of much unrelated text, and 8 is the shortest password NIST SP 800-63B allows; every private IPv4 address has 8 characters or more (`10.0.0.0`). For a shorter secret, the README says to lower `min-chars` and to `ignore` the variables that then match ordinary text (`APP_ENV=staging`). Non-secret values at or above the threshold are found too (`localhost`, `postgres`, `production`): the README's quick start shows `ignore` for them.
+
+## Searched forms
+
+Each value is searched for, in the bytes of each searched file or blob, binary content included, as:
+
+- **plain:** the value as parsed; a multi-line value also with `\r\n` line ends in place of `\n`; a value with `://` also without one trailing slash, which a longer URL in a recorded request contains;
+- **url**, from each plain form: `urllib.parse.quote(form, safe="")` and `urllib.parse.quote_plus(form, safe="")`, each also with lowercase hexadecimal escapes;
+- **json**, from each plain form: `json.dumps(form)[1:-1]`, the same with `ensure_ascii=False`, and each with `/` written `\/`;
+- **base64**, from each plain form: its UTF-8 bytes in the standard and the URL-safe alphabets, in the three alignments that it can have inside a longer encoded text: encoded after 0, 1 and 2 bytes of padding, keeping only the characters that its own bytes decide.
+
+Only the forms that differ from each other, and that are at least `--min-chars` characters long, are searched for. `--no-encoded` keeps the plain forms. Each form needs a test that shows it found, at its line, with the right `form`.
+
+## Configuration
+
+Optional, at the root of the repository, read from the working tree: in `[tool.omerta]` of `pyproject.toml`, or, for a project without one (Node, Go, any other), at the top level of `.omerta.toml`. The keys: `env-files` (patterns, replacing the default), `min-chars` (an integer of at least 1), `ignore` (variable names) and `encoded` (a boolean, `true` by default). An unknown key, a wrong type, an invalid pattern, or settings in both files (`[tool.omerta]` and `.omerta.toml`, so that none silently wins) is an error. The configuration keeps the hook and CI on one list of settings instead of repeating options in each.
+
+## pre-commit
+
+- Ship `.pre-commit-hooks.yaml` with an `omerta` hook (`entry: omerta check`, `language: python`, `types: []` and `types_or: [file, symlink]`, the staged files passed). pre-commit passes a file only if it has every tag of `types`, by default `file`, which a symbolic link (tagged `symlink` only) lacks, and one of `types_or`.
+- Document the local form too: omerta in the dev dependencies, so the lockfile pins it, and a `repo: local` hook with `entry: uv run omerta check`, `language: system`, `types: []` and `types_or: [file, symlink]`, the form this repository's own hooks take.
+- pre-commit may split a long list of files into batches run in parallel: each run reports only the paths it is given, so no finding is printed twice.
+- pre-commit installs a `language: python` hook on the Python it runs on itself, which must then be 3.11 or later: not the pre-commit of Ubuntu 22.04's apt (Python 3.10) or one installed into macOS's system Python (3.9). The README installs pre-commit with `uv tool install pre-commit` or Homebrew.
+
+## README
+
+`README.md` is for users of any language, since env files are in every ecosystem; `uvx` runs omerta without Python knowledge, as uv fetches a Python 3.11+ when none is installed. Besides the pitch, it covers:
+
+- a quick start: `uvx omerta check --all` and `uvx omerta history`, then `ignore` for the non-secret values found (`localhost`, `postgres`);
+- the hook: pre-commit's remote hook (`repo`, `rev`, `id: omerta`) with how to install pre-commit; Husky, Lefthook and a plain `.git/hooks/pre-commit`, each running `uvx omerta@<version> check`; and, for Python projects, the dev dependency and local hook above;
+- CI: a GitHub Actions job with `astral-sh/setup-uv`, `fetch-depth: 0`, `check --all` and `history`;
+- configuration: `[tool.omerta]` or `.omerta.toml`, short secrets and `min-chars`, projects that commit an env file on purpose;
+- the git it needs (2.31; 2.45 in a partial clone), and `safe.directory` for a CI container whose user does not own the checkout (git refuses such a repository for "dubious ownership", and omerta passes that error on).
+
+The examples pin a release (`omerta@X.Y.Z`, `rev: vX.Y.Z`); `PYPI.md` carries the same quick start and hook, shorter.
+
+## The project
+
+- **License:** MIT (`LICENSE`), with no `NOTICE` and no license headers in the source files.
+- **Package:** `omerta` on PyPI, `Development Status :: 3 - Alpha` until 1.0. Repository `github.com/shcherbak-ai/omerta`, which the maintainer creates, with `main` for releases and `dev` for development.
+- **Code:** a `src/omerta/` package with the command `omerta = "omerta.cli:main"`, the command line with `argparse`, and python-dotenv (`>=1.2.4,<2.0.0`) as the only runtime dependency. Findings depend on its parser: 1.2.4 parses `KEY= # comment` as empty, where earlier versions return the comment, and 1.2.3 stopped a quoted value that ends in an escaped backslash from swallowing the next lines. A CI job tests that lower bound. Docstrings in Google style.
+
+## Tooling and standards
+
+- uv, the `uv_build` backend, `requires-python = ">=3.11"`, `.python-version` with 3.14, and `[tool.uv] exclude-newer = "7 days"` from the first lock: a release counts only a week after its upload. The workflows pin the newest uv that is a week old and has no advisory.
+- Ruff (line length 100), ty, Bandit, interrogate, vulture, deptry, and pytest with pytest-xdist (`-n auto` in CI) and coverage at 100% (`fail_under = 100`).
+- pre-commit hooks, each running a tool from `uv.lock` or `package-lock.json`, never a repository that pre-commit installs: the whitespace, end-of-file, YAML and TOML checks, Ruff, Bandit, ty, deptry, the uv lock check, `advisories` (`scripts/check_advisories.py`: the advisories of the locked versions and of the uv the workflows pin, from osv.dev, and the cooldown), interrogate, vulture, Commitizen, markdownlint-cli2, `claude-hooks`, and the `omerta` hook itself, run from the source.
+- Node, with `package.json` and `package-lock.json`, for markdownlint-cli2, `@playwright/mcp` and `github-markdown-css`; `.npmrc` with `min-release-age=7` and `ignore-scripts=true`.
+- The README preview and the browser for agents: `tasks.py` (invoke) with a `readme-preview` task, which renders the README through GitHub's Markdown API with `urllib.request` and serves it in GitHub's light and dark themes, `.mcp.json` (Playwright MCP), and `.claude/` with its hook for the files the browser saves and that hook's tests (`claude-hooks`).
+- Workflows: the CI matrix with the coverage badge (`ci.yml`; the maintainer creates its gist, the `GIST_TOKEN` secret and the `COVERAGE_GIST_ID` variable, read as `vars.COVERAGE_GIST_ID`; the README's coverage badge waits for the gist ID), CodeQL (`codeql.yml`), the release by PyPI trusted publishing (`publish.yml`; the maintainer registers the trusted publisher on PyPI), and the license check of the dependencies with licenseal (`licenseal.yml`, with `LICENSES.md` and `licenseal.review.toml`; licenseal is a dev dependency). No documentation site and no social preview image: `README.md` and `PYPI.md` are the documentation.
+- Files: `README.md` (GitHub), `PYPI.md` (the package description), `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CITATION.cff`, `LICENSE`, `.gitignore`, `.gitattributes`.
+
+## Releases
+
+- Commitizen with conventional commits, `tag_format = "v$version"`, `major_version_zero = true` (a breaking change bumps the minor version before 1.0), and `version_files` anchored to their fields (`pyproject.toml:^version`, `CITATION.cff:^version:`, `src/omerta/__init__.py:__version__`), so that `cff-version` is never rewritten, and the pinned examples of `README.md` and `PYPI.md` (patterns on `omerta@` and `rev: v`), so that a bump moves them.
+- The version fields start at `0.0.0`. The first release is `uv run cz bump 0.1.0`.
+- `CHANGELOG.md` is written by hand, under `## [Unreleased]`, whose link is `https://github.com/shcherbak-ai/omerta/commits/dev` until the first release and a compare link from the last tag to `HEAD` afterwards. A `pre_bump_hooks` script, `scripts/date_release.py`, dates it at `cz bump`: it renames the section to the new version with the day, points its link at the new tag (`.../compare/vX...vY`, or for the first release `.../releases/tag/v0.1.0`), and writes the day into `date-released` of `CITATION.cff`, adding the field after `version:` at the first release, where it has none. After a bump no `[Unreleased]` section is left: the next change adds it again, with its compare link.
+- `tests/test_changelog.py` checks the sections, links and dates, and accepts the state before the first release (an `[Unreleased]` section only, and version `0.0.0`) and a first release whose link is `releases/tag/v0.1.0`.
+
+## Tests
+
+- Temporary git repositories under `tmp_path`, cut off from the user's git configuration (`GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL` set to an empty file, author and committer set, `core.autocrlf=false`, no commit signing), for the index, history and edge cases, with no network.
+- Every test that finds a value also asserts that the value is in no output: stdout, stderr and the text of any exception.
+- The cases this file names: each command, option, form, exit code and output format, the index entries (symbolic links, gitlinks, unmerged entries, staged deletions), the history (a value entering, staying and moving, renames, merges, messages, blobs under a tag), tracked env files, templates, the encodings, line ends, duplicate keys and parse errors of env files, patterns, both configuration files, quoted paths, the git versions, shallow and partial clones, and the discovery of git on `PATH`.
+- CI runs a matrix of Linux, macOS and Windows on every supported Python, at 100% in each cell: a platform's branch hangs on a module constant that a test can flip. Symbolic links in the index are made with `git update-index --cacheinfo 120000,<blob>,<path>`, which needs no privilege on Windows; an old git is faked by patching the version read; shallow and partial clones are real clones of a test repository through `file://` (`--depth 1`, `--filter=blob:none`).
+
+## Rules
+
+- Sessions may commit on `dev`, with conventional commits. Never push, merge into `main` or tag: the maintainer does.
+- Nothing committed names a path on the maintainer's machine, or another of the maintainer's projects as the source of a file or a decision: not this file, the documentation, code comments, tests or commit messages.
+- No code that keeps the behaviour or data of an earlier version working, unless the maintainer asks for it: a breaking change gets a changelog entry that says what to change.
+
+## First steps
+
+1. Work on `dev`. Scaffold the tooling above, and install both hook types (`uv run pre-commit install --hook-type pre-commit --hook-type commit-msg`) before the next commit.
+2. Build the package: the env files and values, the searched forms, the index reading of `check` and `--all`, `history`, the options, the tracked env files, the configuration and `.pre-commit-hooks.yaml`, each with its tests.
+3. Then the README, `PYPI.md` and the other files above.
