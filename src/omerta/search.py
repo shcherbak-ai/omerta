@@ -2,28 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
+
+import hyperscan
 
 from omerta.config import Settings
 from omerta.envfiles import EnvFile, read
-from omerta.forms import BASE64, forms
-
-# The characters that no encoding of omerta's changes: percent-encoding and
-# JSON leave them as they are. Every plain, url and json form of a value holds
-# the value's longest run of them.
-_UNCHANGED = re.compile(rb"[A-Za-z0-9_.~-]+")
-# The base64 characters that both alphabets share: a form's standard and
-# URL-safe spellings hold the same longest run of them.
-_SHARED = re.compile(rb"[A-Za-z0-9]+")
-# A shorter run is found too often to save a search.
-_MIN_CORE = 4
+from omerta.forms import forms
 
 Member = tuple[int, int, bytes, str]
 """A form: its rank among the target's forms, its value's index, its bytes and its kind."""
-
-Group = tuple[bytes, tuple[Member, ...]]
-"""Forms that all hold one core: the core, and the forms."""
 
 Occurrence = tuple[int, int, str]
 """Where a value is first found: the position, the rank of the form there, and its kind."""
@@ -31,11 +19,7 @@ Occurrence = tuple[int, int, str]
 
 @dataclass(frozen=True)
 class Target:
-    """A variable of an env file, with the forms of each value it has there.
-
-    The forms are grouped by a core that each form of a group holds: content
-    without the core holds none of them, which one search tells.
-    """
+    """A variable of an env file, with the forms of each value it has there."""
 
     variable: str
     env_file: str
@@ -44,14 +28,13 @@ class Target:
     env_order: int
     """The env file's place in the order of the patterns, then of the paths."""
 
-    groups: tuple[Group, ...] = field(repr=False)
-    """The forms as UTF-8 bytes, by their cores. Never printed."""
+    members: tuple[Member, ...] = field(repr=False)
+    """The forms as UTF-8 bytes, in their order. Never printed."""
 
     @property
     def forms(self) -> tuple[tuple[bytes, str], ...]:
         """Each form with its kind, in their order."""
-        ranked = sorted(member for _, members in self.groups for member in members)
-        return tuple((form, kind) for _, _, form, kind in ranked)
+        return tuple((form, kind) for _, _, form, kind in self.members)
 
 
 @dataclass(frozen=True)
@@ -83,68 +66,89 @@ def targets(env_files: list[EnvFile], settings: Settings) -> list[Target]:
                 values.setdefault((order, variable), []).append(value)
     found = []
     for (order, variable), each in values.items():
-        ranks: dict[bytes, int] = {}
-        groups: dict[bytes, list[Member]] = {}
+        members: dict[bytes, Member] = {}
         for number, value in enumerate(each):
-            unchanged = _core(value.encode("utf-8"), _UNCHANGED)
             for text, kind in forms(
                 value, encoded=settings.encoded, min_chars=settings.min_chars
             ).items():
                 form = text.encode("utf-8")
-                if form in ranks:
-                    continue
-                ranks[form] = len(ranks)
-                core = _core(form, _SHARED) if kind == BASE64 else unchanged
-                groups.setdefault(core, []).append((ranks[form], number, form, kind))
+                members.setdefault(form, (len(members), number, form, kind))
         found.append(
             Target(
                 variable=variable,
                 env_file=env_files[order].path,
                 env_order=order,
-                groups=tuple((core, tuple(members)) for core, members in groups.items()),
+                members=tuple(members.values()),
             )
         )
     return found
 
 
-def _core(text: bytes, run: re.Pattern[bytes]) -> bytes:
-    """The longest run of ``text``, or nothing where it is too short to search for."""
-    core = max(run.findall(text), key=len, default=b"")
-    return core if len(core) >= _MIN_CORE else b""
+class Matcher:
+    """Every form of every target in one Hyperscan database, which one pass over content searches.
 
-
-def occurrences(data: bytes, searched: list[Target]) -> dict[int, dict[int, Occurrence]]:
-    """Where each value of each target is first found in ``data``.
-
-    Returns:
-        For each target found, by its index: for each of its values found, by
-        the value's index, its first occurrence. At one position, the form
-        listed first wins.
+    Each form is a literal reported at its first occurrence only, which is all a
+    search needs: a form's first end, less its length, is its first position.
     """
-    found = {}
-    for index, target in enumerate(searched):
-        values: dict[int, Occurrence] = {}
-        for core, members in target.groups:
-            if core and core not in data:
-                continue
-            for rank, value, form, kind in members:
-                position = data.find(form)
-                if position >= 0 and (value not in values or (position, rank) < values[value][:2]):
+
+    def __init__(self, searched: list[Target]) -> None:
+        self._forms: list[bytes] = []
+        # For each form, every target that has it: the target's index, the
+        # value's index, the form's rank in the target, and its kind.
+        self._owners: list[list[tuple[int, int, int, str]]] = []
+        numbers: dict[bytes, int] = {}
+        for index, target in enumerate(searched):
+            for rank, value, form, kind in target.members:
+                if form not in numbers:
+                    numbers[form] = len(self._forms)
+                    self._forms.append(form)
+                    self._owners.append([])
+                self._owners[numbers[form]].append((index, value, rank, kind))
+        self._database = None
+        if self._forms:
+            self._database = hyperscan.Database(mode=hyperscan.HS_MODE_BLOCK)
+            self._database.compile(
+                expressions=self._forms,
+                ids=list(range(len(self._forms))),
+                elements=len(self._forms),
+                flags=[hyperscan.HS_FLAG_SINGLEMATCH] * len(self._forms),
+                literal=True,
+            )
+
+    def occurrences(self, data: bytes) -> dict[int, dict[int, Occurrence]]:
+        """Where each value of each target is first found in ``data``.
+
+        Returns:
+            For each target found, by its index: for each of its values found, by
+            the value's index, its first occurrence. At one position, the form
+            listed first wins.
+        """
+        if self._database is None:
+            return {}
+        starts: dict[int, int] = {}
+
+        def matched(form: int, start: int, end: int, *_: object) -> None:
+            """Note where a form is first found (its flags and context are not used)."""
+            starts.setdefault(form, end - len(self._forms[form]))
+
+        self._database.scan(data, match_event_handler=matched)
+        found: dict[int, dict[int, Occurrence]] = {}
+        for form, position in starts.items():
+            for index, value, rank, kind in self._owners[form]:
+                values = found.setdefault(index, {})
+                if value not in values or (position, rank) < values[value][:2]:
                     values[value] = (position, rank, kind)
-        if values:
-            found[index] = values
-    return found
+        return found
+
+    def search(self, data: bytes) -> dict[int, Hit]:
+        """The first occurrence of each target found in ``data``, by its index."""
+        return {index: first(values) for index, values in self.occurrences(data).items()}
 
 
 def first(values: dict[int, Occurrence]) -> Hit:
     """The first occurrence of any of the values of a target."""
     position, _, kind = min(values.values())
     return Hit(position, kind)
-
-
-def search(data: bytes, searched: list[Target]) -> dict[int, Hit]:
-    """The first occurrence of each target found in ``data``, by its index."""
-    return {index: first(values) for index, values in occurrences(data, searched).items()}
 
 
 def line_of(data: bytes, position: int) -> int:

@@ -4,7 +4,9 @@ name: Latest dependencies
 # as a new install resolves them: what is searched for depends on the parser of
 # python-dotenv, and its release between two upgrades of uv.lock reaches users
 # of `uvx omerta` at once. The cooldown of `[tool.uv] exclude-newer` holds here
-# too. On the one Python of .python-version, not the matrix.
+# too. On the one Python of .python-version, not the matrix. And that omerta
+# installs from wheels on every platform and Python it supports, as a release
+# of hyperscan or of Python can open a gap.
 on:
   schedule:
     - cron: "0 5 * * *"
@@ -36,6 +38,9 @@ jobs:
       # The test tools at the versions of uv.lock.
       - name: Install dependencies
         run: uv sync --locked
+
+      - name: Check that every platform installs from wheels
+        run: uv run --no-sync python scripts/check_wheels.py
 
       # The package itself, built and installed as a user's install has it,
       # with its dependencies upgraded to their newest releases.

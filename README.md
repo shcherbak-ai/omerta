@@ -155,7 +155,7 @@ A project that commits an env file on purpose (Symfony's `.env`, Vite's `.env.pr
 ## Requirements and security
 
 - **git 2.31** or later on `PATH`, and **2.45** in a partial clone, the first that can be kept from fetching. A CI container whose user does not own the checkout needs `git config --global --add safe.directory "$PWD"`.
-- **Python 3.11** or later, which `uvx` brings along.
+- **Python 3.11** or later, which `uvx` brings along. On Windows on ARM, use an x64 Python: the matcher omerta searches with, hyperscan, has no ARM wheels for Windows.
 - **No network code**, no value in any output, error or git command line, and git run by its absolute path, never from inside the repository it checks. See [SECURITY.md](SECURITY.md).
 
 ## License

@@ -9,7 +9,7 @@ from omerta.errors import OmertaError
 from omerta.git import GITLINK, REV_LIST_Z_VERSION, Git, is_null
 from omerta.output import Finding
 from omerta.patterns import Pattern, is_env_file
-from omerta.search import Occurrence, Target, first, occurrences, search
+from omerta.search import Matcher, Occurrence, Target, first
 
 _HASH = re.compile(rb"[0-9a-f]{40}|[0-9a-f]{64}")
 
@@ -119,17 +119,18 @@ def run(git: Git, targets: list[Target], patterns: tuple[Pattern, ...], findings
             "--format=%H",
         )
     )
+    matcher = Matcher(targets)
     # For each blob with a value: for each target, where each of its values is.
     hits: dict[str, dict[int, dict[int, Occurrence]]] = {}
     if targets:
         wanted = [oid for oid, _ in objects if kinds[oid] in ("blob", "commit", "tag")]
         for oid, kind, data in git.objects(wanted):
             if kind == "blob":
-                if found := occurrences(data, targets):
+                if found := matcher.occurrences(data):
                     hits[oid] = found
                 continue
             message = data.partition(b"\n\n")[2]
-            for index, hit in search(message, targets).items():
+            for index, hit in matcher.search(message).items():
                 findings.append(
                     _found(
                         targets[index],
@@ -146,7 +147,9 @@ def run(git: Git, targets: list[Target], patterns: tuple[Pattern, ...], findings
             continue
         added = all(is_null(oid) for oid in change.replaced)
         if added:
-            _search_path(targets, findings, change.path, commit=change.commit, order=change.order)
+            _search_path(
+                matcher, targets, findings, change.path, commit=change.commit, order=change.order
+            )
         if change.mode == GITLINK:
             continue
         if added and is_env_file(change.path, patterns):
@@ -173,7 +176,7 @@ def run(git: Git, targets: list[Target], patterns: tuple[Pattern, ...], findings
         if kinds[oid] != "blob" or oid in written:
             continue
         if path is not None:
-            _search_path(targets, findings, path, blob=oid)
+            _search_path(matcher, targets, findings, path, blob=oid)
             if is_env_file(path, patterns):
                 findings.append(Finding(path=path, blob=oid))
         for index, values in hits.get(oid, {}).items():
@@ -181,6 +184,7 @@ def run(git: Git, targets: list[Target], patterns: tuple[Pattern, ...], findings
 
 
 def _search_path(
+    matcher: Matcher,
     targets: list[Target],
     findings: list[Finding],
     path: bytes,
@@ -190,7 +194,7 @@ def _search_path(
     order: int = 0,
 ) -> None:
     """Add a finding for each target whose value is in a path."""
-    for index, hit in search(path, targets).items():
+    for index, hit in matcher.search(path).items():
         findings.append(
             _found(
                 targets[index],

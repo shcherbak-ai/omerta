@@ -113,9 +113,10 @@ jobs:
           minColorRange: 50
           maxColorRange: 100
 
-  # The lowest python-dotenv the package admits: its parser decides which
-  # values are searched for. In a throwaway environment synced from the lock,
-  # with the bound installed over it.
+  # The lowest versions the package admits: python-dotenv's parser decides
+  # which values are searched for, and hyperscan searches for them. In a
+  # throwaway environment synced from the lock, with the bounds installed over
+  # it.
   lower-bounds:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -135,9 +136,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Install the lowest python-dotenv
+      - name: Install the lowest versions
         run: |
-          uv pip install --python "$UV_PROJECT_ENVIRONMENT" "python-dotenv==1.2.4"
+          uv pip install --python "$UV_PROJECT_ENVIRONMENT" "python-dotenv==1.2.4" "hyperscan==0.9.1"
           uv pip check --python "$UV_PROJECT_ENVIRONMENT"
 
       - name: Run tests

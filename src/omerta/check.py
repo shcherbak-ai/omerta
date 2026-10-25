@@ -8,7 +8,7 @@ from omerta.errors import OmertaError
 from omerta.git import GITLINK, Entry, Git
 from omerta.output import Finding
 from omerta.patterns import Pattern, is_env_file
-from omerta.search import Target, line_of, search
+from omerta.search import Matcher, Target, line_of
 
 
 def select(git: Git, index: list[Entry], paths: list[str], everything: bool) -> list[Entry]:
@@ -73,8 +73,9 @@ def run(
     Raises:
         OmertaError: An entry's object cannot be read.
     """
+    matcher = Matcher(targets)
     for path in sorted({entry.path for entry in entries}):
-        for index, hit in search(path, targets).items():
+        for index, hit in matcher.search(path).items():
             findings.append(_found(targets[index], hit.form, path=path, in_path=True))
     entries = sorted(
         (entry for entry in entries if entry.mode != GITLINK),
@@ -93,7 +94,7 @@ def run(
     found: dict[tuple[bytes, int], tuple[int, Finding]] = {}
     try:
         for oid, _, data in git.objects(list(by_oid)):
-            hits = search(data, targets)
+            hits = matcher.search(data)
             for entry in by_oid[oid]:
                 for index, hit in hits.items():
                     key = (entry.path, index)
