@@ -1,10 +1,14 @@
 name: Publish
 
+# After every CI run: the gate below publishes only a commit of main that a v*
+# tag points at. A release starts two runs, that of the push to main and that
+# of the tag, and either can publish it, so a tag pushed after main's run has
+# finished is still released. No branch filter: to one, a tag's run has the
+# tag's name for its branch, and `branches: [main]` would leave it out.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [main]
 
 concurrency:
   group: publish-${{ github.event.workflow_run.head_sha }}
@@ -84,8 +88,9 @@ jobs:
 
       # Smoke-test the built wheel: install it into a fresh venv and run the
       # command's --version, then check a repository from outside the
-      # checkout. Its dependencies are the versions of uv.lock, which the
-      # tests ran on, checked by their hashes: none is resolved afresh.
+      # checkout: it finds the key, by its variable, and never prints it. Its
+      # dependencies are the versions of uv.lock, which the tests ran on,
+      # checked by their hashes: none is resolved afresh.
       - name: Verify wheel install
         run: |
           uv export --locked --no-default-groups --no-emit-project --output-file /tmp/requirements.txt
@@ -97,8 +102,11 @@ jobs:
           mkdir /tmp/smoke && cd /tmp/smoke && git init -q
           printf 'API_KEY=sk-smoke-0123456789abcdef\n' > .env
           printf 'key = "sk-smoke-0123456789abcdef"\n' > app.py && git add app.py
-          set +e; /tmp/wheel-verify/bin/omerta check; status=$?; set -e
+          set +e; /tmp/wheel-verify/bin/omerta check > /tmp/smoke.txt 2>&1; status=$?; set -e
+          cat /tmp/smoke.txt
           test "$status" -eq 1
+          grep -qx 'app.py:1: API_KEY (from .env)' /tmp/smoke.txt
+          if grep -q sk-smoke /tmp/smoke.txt; then echo "::error::omerta printed the value"; exit 1; fi
 
   publish:
     needs: [build]
@@ -121,8 +129,8 @@ jobs:
         # emSign CAs.
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
-          # A tag push and main push at the same SHA produce two CI runs and
-          # thus two publish runs; the concurrency group cancels the duplicate,
-          # but skip-existing makes a same-version re-upload a no-op rather than
-          # a hard failure if the cancelled run already uploaded.
+          # A tag push and a main push at the same SHA produce two CI runs and
+          # thus two publish runs; the concurrency group cancels the one that
+          # runs while the other does, and skip-existing makes the upload of
+          # the later one a no-op rather than a hard failure.
           skip-existing: true

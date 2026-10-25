@@ -87,4 +87,6 @@ Look at a change as GitHub will show it before pushing it. `uv run inv readme-pr
 
 ## Releases
 
-The maintainer releases from `main`: `uv run cz bump` (the first release: `uv run cz bump 0.1.0`) rewrites the version fields, names the `## [Unreleased]` section of `CHANGELOG.md` after the new version with the day, and tags the commit; the publish workflow uploads the release to PyPI once CI passes on the tag. Write each change under `## [Unreleased]` in the change itself.
+The maintainer releases from `main`: `uv run cz bump` (the first release: `uv run cz bump 0.1.0`) rewrites the version fields, names the `## [Unreleased]` section of `CHANGELOG.md` after the new version with the day, and tags the commit. Pushing `main` and the tag (`git push --follow-tags`) starts a CI run for each, and the publish workflow uploads the release to PyPI once either passes: it publishes a commit of `main` that a `v*` tag points at. Write each change under `## [Unreleased]` in the change itself.
+
+A bump that a hook stops, such as for a missing or empty `## [Unreleased]` section, makes no commit and no tag, but leaves the version fields rewritten and `uv.lock` staged. Set them back before trying again: `git restore --staged --worktree uv.lock pyproject.toml src/omerta/__init__.py CITATION.cff README.md PYPI.md`.

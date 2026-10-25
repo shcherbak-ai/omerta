@@ -8,10 +8,10 @@ on:
     branches: [main, dev]
   workflow_dispatch:
 
-# Note: the publish workflow (.github/workflows/publish.yml) triggers
-# via workflow_run after CI succeeds. A tag push and main push may both
-# trigger CI; the publish workflow uses a concurrency group to cancel
-# the duplicate.
+# The publish workflow (.github/workflows/publish.yml) runs after each CI
+# run, and publishes a commit of main that a v* tag points at. A release's
+# push to main and its tag start two CI runs, and either can publish it; the
+# publish workflow's concurrency group cancels the duplicate.
 
 permissions:
   contents: read

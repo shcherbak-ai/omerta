@@ -1,0 +1,49 @@
+name: Latest dependencies
+
+# The package with the newest release of each dependency that its ranges admit,
+# as a new install resolves them: what is searched for depends on the parser of
+# python-dotenv, and its release between two upgrades of uv.lock reaches users
+# of `uvx omerta` at once. The cooldown of `[tool.uv] exclude-newer` holds here
+# too. On the one Python of .python-version, not the matrix.
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.13.4"
+
+jobs:
+  latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/../latest-venv
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python from .python-version
+        run: uv python install
+
+      # The test tools at the versions of uv.lock.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # The package itself, built and installed as a user's install has it,
+      # with its dependencies upgraded to their newest releases.
+      - name: Install the package with the newest dependencies
+        run: |
+          uv pip install --python "$UV_PROJECT_ENVIRONMENT" --upgrade .
+          uv pip check --python "$UV_PROJECT_ENVIRONMENT"
+          uv pip show --python "$UV_PROJECT_ENVIRONMENT" python-dotenv
+
+      - name: Run tests
+        run: uv run --no-sync pytest -n auto
