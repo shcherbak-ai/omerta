@@ -28,15 +28,19 @@ classifiers = [
     "Environment :: Console",
     "Typing :: Typed",
 ]
+# Pinned exactly, as uv.lock has them, which `uv lock --check` holds: both see
+# the values of the env files in cleartext, and pre-commit and uvx install from
+# these requirements, not from uv.lock. A release of either reaches users only
+# through a release of omerta, after the cooldown and the advisories check.
 dependencies = [
     # Every form of every value is searched for in one pass over each blob, as
     # literals of one Hyperscan database. Its wheels cover every platform but
-    # Windows on ARM. CI tests this bound.
-    "hyperscan>=0.9.1,<1.0.0",
+    # Windows on ARM.
+    "hyperscan==0.9.1",
     # Findings depend on its parser: 1.2.4 parses `KEY= # comment` as empty,
     # and 1.2.3 stopped a quoted value ending in an escaped backslash from
-    # swallowing the next lines. CI tests this bound.
-    "python-dotenv>=1.2.4,<2.0.0",
+    # swallowing the next lines.
+    "python-dotenv==1.2.4",
 ]
 
 [project.urls]

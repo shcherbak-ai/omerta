@@ -1,12 +1,11 @@
 name: Latest dependencies
 
-# The package with the newest release of each dependency that its ranges admit,
-# as a new install resolves them: what is searched for depends on the parser of
-# python-dotenv, and its release between two upgrades of uv.lock reaches users
-# of `uvx omerta` at once. The cooldown of `[tool.uv] exclude-newer` holds here
-# too. On the one Python of .python-version, not the matrix. And that omerta
-# installs from wheels on every platform and Python it supports, as a release
-# of hyperscan or of Python can open a gap.
+# The package with the newest release of each dependency in place of its exact
+# pin: users get the pins, so this warns ahead of the next one, as what is
+# searched for depends on the parser of python-dotenv. The cooldown of
+# `[tool.uv] exclude-newer` holds here too. On the one Python of
+# .python-version, not the matrix. And that omerta, at the pins, installs from
+# wheels on every platform and Python it supports.
 on:
   schedule:
     - cron: "0 5 * * *"
@@ -43,12 +42,13 @@ jobs:
         run: uv run --no-sync python scripts/check_wheels.py
 
       # The package itself, built and installed as a user's install has it,
-      # with its dependencies upgraded to their newest releases.
+      # with overrides that put the newest release of each dependency in place
+      # of its pin (so `uv pip check`, which holds the pins, is not run).
       - name: Install the package with the newest dependencies
         run: |
-          uv pip install --python "$UV_PROJECT_ENVIRONMENT" --upgrade .
-          uv pip check --python "$UV_PROJECT_ENVIRONMENT"
-          uv pip show --python "$UV_PROJECT_ENVIRONMENT" python-dotenv
+          printf 'hyperscan\npython-dotenv\n' > "$RUNNER_TEMP/newest.txt"
+          uv pip install --python "$UV_PROJECT_ENVIRONMENT" --upgrade --override "$RUNNER_TEMP/newest.txt" .
+          uv pip show --python "$UV_PROJECT_ENVIRONMENT" hyperscan python-dotenv
 
       - name: Run tests
         run: uv run --no-sync pytest -n auto

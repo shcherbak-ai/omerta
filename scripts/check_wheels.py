@@ -9,8 +9,9 @@ cooldown of ``[tool.uv] exclude-newer``. It fails on a gap that
 ``KNOWN_GAPS`` does not list, and on a listed gap that has closed, so that the
 README's note on it goes too.
 
-It runs daily in CI (``latest.yml``), as a release of a dependency or of
-Python can open a gap with no change here. Run directly::
+The dependencies are pinned exactly, so it checks the versions users install.
+It runs daily in CI (``latest.yml``), as a release can lose files after it
+was pinned. Run directly::
 
     uv run python scripts/check_wheels.py
 """

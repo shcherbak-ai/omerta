@@ -13,5 +13,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - The values are searched for as written, and as encoded in URLs, JSON and base64, in the files' content and in their paths; a tracked env file is reported as a leak.
 - Options `-C`, `--min-chars`, `--env-file`, `--ignore`, `--encoded`/`--no-encoded`, `--json` and `--quiet`, and the settings `min-chars`, `env-files`, `ignore` and `encoded` in `[tool.omerta]` of `pyproject.toml` or in `.omerta.toml`.
 - A pre-commit hook, `omerta`.
+- Its two dependencies, python-dotenv and hyperscan, pinned to exact versions: a new release of either reaches users only through a release of omerta.
 
 [Unreleased]: https://github.com/shcherbak-ai/omerta/commits/dev

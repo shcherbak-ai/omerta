@@ -113,34 +113,3 @@ jobs:
           valColorRange: ${{ steps.coverage.outputs.pct }}
           minColorRange: 50
           maxColorRange: 100
-
-  # The lowest versions the package admits: python-dotenv's parser decides
-  # which values are searched for, and hyperscan searches for them. In a
-  # throwaway environment synced from the lock, with the bounds installed over
-  # it.
-  lower-bounds:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/../lower-bounds-venv
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
-        with:
-          version: ${{ env.UV_VERSION }}
-
-      - name: Set up Python from .python-version
-        run: uv python install
-
-      - name: Install dependencies
-        run: uv sync --locked
-
-      - name: Install the lowest versions
-        run: |
-          uv pip install --python "$UV_PROJECT_ENVIRONMENT" "python-dotenv==1.2.4" "hyperscan==0.9.1"
-          uv pip check --python "$UV_PROJECT_ENVIRONMENT"
-
-      - name: Run tests
-        run: uv run --no-sync pytest -n auto
