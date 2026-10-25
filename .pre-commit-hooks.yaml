@@ -1,0 +1,13 @@
+# The hook that other repositories use (`repo: https://github.com/shcherbak-ai/omerta`).
+# pre-commit passes the staged files at a commit, and every tracked file with
+# --all-files. It passes a file only if it has every tag of `types`, by default
+# `file`, which a symbolic link (tagged `symlink` only) lacks: hence `types: []`
+# and `types_or`.
+- id: omerta
+  name: omerta
+  description: Fail when a value of your env files, e.g. an API key in .env, is in a staged file.
+  entry: omerta check
+  language: python
+  types: []
+  types_or: [file, symlink]
+  minimum_pre_commit_version: "3.0.0"
