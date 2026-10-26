@@ -14,6 +14,10 @@
 </p>
 
 <p align="center">
+<a href="https://www.producthunt.com/products/omerta?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-omerta"><img alt="omerta on Product Hunt" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1292641&theme=dark" width="200" height="43"></a>
+</p>
+
+<p align="center">
 <a href="#quick-start"><strong>Quick start</strong></a> ·
 <a href="#git-hooks"><strong>Git hooks</strong></a> ·
 <a href="#ci"><strong>CI</strong></a> ·
