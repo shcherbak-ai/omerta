@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, event, given, settings
+from hypothesis import strategies as st
 
 from conftest import GIT_VERSION, Repo
 from omerta import history
@@ -266,3 +268,164 @@ def test_objects_are_read_with_their_paths_in_both_formats():
         (tree, None),
         (blob, b"a b"),
     ]
+
+
+# A model of `history`, written from its rules rather than from its code, and
+# random histories to hold it against: merges of two and three parents, new
+# roots, a version taken from a parent or written anew, a mode or a type that
+# changes alone, a tracked env file, and a path that holds a value. KEY's
+# second value holds its first, so a version can hold the first alone or both.
+_ALPHA = "sk-alpha-0123456789"
+_MODEL_VALUES = {"KEY": (_ALPHA, f"{_ALPHA}-rotated"), "ORG": ("org-beta-9876543210",)}
+_CONTENTS = (
+    b"no value here\n",
+    b"nor here\n",
+    f"key = {_ALPHA}\n".encode(),
+    f"key = {_ALPHA}-rotated\n".encode(),
+    f"org-beta-9876543210 {_ALPHA}\n".encode(),
+    f"org-beta-9876543210 {_ALPHA}-rotated\n".encode(),
+    b"org = org-beta-9876543210\n",
+)
+_MODES = ("100644", "100755", "120000")
+_MODEL_PATHS = (".env.prod", "a.txt", "b.txt", "d/c.txt", "d/e/f.txt", f"keys/{_ALPHA}.txt")
+
+Version = tuple[str, bytes] | None
+"""A path's mode and content in a commit, or ``None`` where the commit has none."""
+
+Commit = tuple[list[int], dict[str, Version]]
+"""A commit's parents, by their places in the history, and its tree."""
+
+
+@st.composite
+def _histories(draw: st.DrawFn) -> list[Commit]:
+    """Commits, oldest first, each with parents among the commits before it."""
+    commits: list[Commit] = []
+    for number in range(draw(st.integers(1, 8))):
+        parents = []
+        # After the first, one commit in six starts a new root; of the others,
+        # half are merges, of two parents or of three.
+        if number and draw(st.integers(0, 5)):
+            count = min(number, draw(st.sampled_from([1, 1, 2, 3])))
+            parents = draw(st.permutations(range(number)))[:count]
+        written = st.tuples(st.sampled_from(_MODES), st.sampled_from(_CONTENTS))
+        tree = {}
+        for path in _MODEL_PATHS:
+            versions = [commits[parent][1].get(path) for parent in parents]
+            kept = st.sampled_from(versions or [None])
+            # A parent's content in any mode: at a merge, a version that
+            # differs from every parent and holds what one of them holds.
+            contents = [version[1] for version in versions if version is not None]
+            retyped = st.tuples(st.sampled_from(_MODES), st.sampled_from(contents or _CONTENTS))
+            if version := draw(st.one_of(kept, kept, written, retyped, st.none())):
+                tree[path] = version
+        commits.append((parents, tree))
+    return commits
+
+
+def _fast_import(commits: list[Commit]) -> bytes:
+    """The stream that ``git fast-import`` builds the history from, a branch for each commit."""
+
+    def data(content: bytes) -> bytes:
+        return b"data %d\n%s\n" % (len(content), content)
+
+    stream = b""
+    for number, (parents, tree) in enumerate(commits):
+        stream += f"commit refs/heads/c{number}\nmark :{number + 1}\n".encode()
+        stream += f"committer Test <test@example.com> {1_700_000_000 + number} +0000\n".encode()
+        stream += data(f"commit {number}".encode())
+        if parents:
+            stream += f"from :{parents[0] + 1}\n".encode()
+        stream += "".join(f"merge :{parent + 1}\n" for parent in parents[1:]).encode()
+        stream += b"deleteall\n"
+        for path, (mode, content) in tree.items():
+            stream += f"M {mode} inline {path}\n".encode() + data(content)
+    return stream
+
+
+def _held(version: Version) -> set[tuple[str, str]]:
+    """The values that a version holds, each with its variable."""
+    if version is None:
+        return set()
+    return {
+        (variable, value)
+        for variable, values in _MODEL_VALUES.items()
+        for value in values
+        if value.encode() in version[1]
+    }
+
+
+def _model(commits: list[Commit], ids: list[str]) -> list[dict]:
+    """The findings of ``history --json``, by its rules, in their order."""
+    found = []
+    for number, (parents, tree) in enumerate(commits):
+        for path, version in tree.items():
+            replaced = [commits[parent][1].get(path) for parent in parents]
+            # git log lists a path where the commit differs from every parent.
+            if version in replaced:
+                continue
+            place = {"path": path.replace(_ALPHA, "<KEY>"), "commit": ids[number]}
+            source = {"env_file": ".env", "form": "plain"}
+            if all(other is None for other in replaced):
+                if path == ".env.prod":
+                    found.append(((path, 0, "", -number), {**place, "tracked_env_file": True}))
+                if _ALPHA in path:
+                    record = {**place, "in_path": True, "variable": "KEY", **source}
+                    found.append(((path, 1, "KEY", -number), record))
+            before = set().union(*map(_held, replaced))
+            for variable in sorted({variable for variable, _ in _held(version) - before}):
+                record = {**place, "variable": variable, **source}
+                found.append(((path, 2, variable, -number), record))
+    return [record for _, record in sorted(found, key=lambda each: each[0])]
+
+
+def _note_cases(commits: list[Commit]) -> None:
+    """Count the rare cases of an example, which ``--hypothesis-show-statistics`` shows."""
+    for parents, tree in commits:
+        event(f"{len(parents)} parents")
+        for path, version in tree.items():
+            replaced = [commits[parent][1].get(path) for parent in parents]
+            if version in replaced:
+                continue
+            if any(other is not None and other[1] == version[1] for other in replaced):
+                event("a mode or a type changes alone")
+            if len(parents) > 1:
+                if _held(version) - set().union(*map(_held, replaced)):
+                    event("a value enters at a merge")
+                if _held(version) & set().union(*map(_held, replaced[1:])):
+                    event("a merge writes a value that a parent other than the first holds")
+
+
+@settings(
+    max_examples=40,
+    # The omerta fixture changes to the folder and empties its capture at each
+    # run, so the examples share nothing through it.
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(commits=_histories())
+def test_history_reports_what_a_model_of_its_rules_reports(
+    tmp_path_factory: pytest.TempPathFactory, omerta, commits: list[Commit]
+):
+    folder = tmp_path_factory.mktemp("history")
+    subprocess.run(["git", "init", "-q", str(folder)], check=True, capture_output=True)
+    (folder / ".env").write_text(
+        "".join(
+            f"{variable}={value}\n"
+            for variable, values in _MODEL_VALUES.items()
+            for value in values
+        ),
+        encoding="utf-8",
+    )
+    marks = folder / ".git" / "marks"
+    subprocess.run(
+        ["git", "fast-import", "--quiet", f"--export-marks={marks}"],
+        cwd=folder,
+        input=_fast_import(commits),
+        check=True,
+        capture_output=True,
+    )
+    oids = dict(line.split() for line in marks.read_text().splitlines())
+    expected = _model(commits, [oids[f":{number + 1}"] for number in range(len(commits))])
+    _note_cases(commits)
+    result = omerta("history", "--json", cwd=folder)
+    assert [json.loads(line) for line in result.lines] == expected
+    assert result.code == (1 if expected else 0)
