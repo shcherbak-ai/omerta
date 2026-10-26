@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Each versio
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- The error for an env file that cannot be read or parsed names it with the values of the other env files replaced by their variables' names, as findings do: an env file named after a value of another, such as `.env.<BUCKET>`, showed the value.
+
 ## [0.1.0] - 2026-10-25
 
 ### Added
@@ -15,4 +21,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - A pre-commit hook, `omerta`.
 - Its two dependencies, python-dotenv and hyperscan, pinned to exact versions: a new release of either reaches users only through a release of omerta.
 
+[Unreleased]: https://github.com/shcherbak-ai/omerta/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/shcherbak-ai/omerta/releases/tag/v0.1.0

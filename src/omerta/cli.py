@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import os
 import sys
@@ -95,7 +96,15 @@ def _run(args: argparse.Namespace, findings: list[Finding], searched: list[Targe
     )
     index = git.index()
     sources = envfiles.find(top, settings.patterns, {entry.path for entry in index})
-    searched.extend(targets(sources, settings))
+    try:
+        searched.extend(targets(sources, settings))
+    except OmertaError:
+        # The error names an env file, whose name may hold a value of another:
+        # the values of every env file that can be read are hidden in it.
+        for source in sources:
+            with contextlib.suppress(OmertaError):
+                searched.extend(targets([source], settings))
+        raise
     if args.command == "check":
         entries = check.select(git, index, args.paths, args.all)
         check.run(git, entries, searched, settings.patterns, findings)

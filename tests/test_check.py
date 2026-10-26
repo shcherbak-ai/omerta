@@ -378,6 +378,19 @@ def test_an_env_file_that_cannot_be_parsed_is_an_error_without_its_text(project:
     result.assert_silent_about(_KEY)
 
 
+def test_an_env_file_that_cannot_be_parsed_is_named_with_the_values_of_the_others_hidden(
+    repo: Repo, omerta
+):
+    # .env.local, which holds the value, is read after the file that fails.
+    repo.write(".env.acme-prod-data-7731", 'BROKEN="sk-test-abcdef0123\n')
+    repo.write(".env.local", "BUCKET=acme-prod-data-7731\n")
+    result = omerta("check", "--all", cwd=repo.path)
+    assert result.code == 2
+    assert result.err == (
+        "omerta: .env.<BUCKET>, line 1: python-dotenv cannot parse this statement\n"
+    )
+
+
 def test_gits_error_output_is_shown_with_each_value_replaced(
     project: Repo, omerta, monkeypatch: pytest.MonkeyPatch
 ):
