@@ -57,6 +57,8 @@ uv run pytest -n 8 --cov=omerta --cov-report=term-missing
 
 100% test coverage is required, on every platform and Python of the CI matrix. All new code must include tests. The tests run git in temporary repositories, cut off from your git configuration, and make no network connection.
 
+The property tests (Hypothesis) try new examples at each run, and keep one that failed in `.hypothesis/` to try first the next time. CI tries the same examples at each run; for a failure, it prints a `@reproduce_failure(...)` line, which replays the example when you put it on the test.
+
 ## Code style
 
 - ruff format, line length 100

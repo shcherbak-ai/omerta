@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from omerta.output import Finding, json_line, quote, sort_key, text_line
 
@@ -30,6 +32,47 @@ _BLOB = "b" * 40
 )
 def test_a_path_is_quoted_as_git_quotes_paths_where_it_has_to_be(raw: bytes, shown: str):
     assert quote(raw) == shown
+
+
+_UNESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _unquote(shown: str) -> bytes:
+    """A path as a reader of git's quoting takes it back: the oracle of the test below."""
+    if not shown.startswith('"'):
+        return shown.encode("utf-8")
+    body, raw, position = shown[1:-1], bytearray(), 0
+    while position < len(body):
+        if body[position] != "\\":
+            raw += body[position].encode("utf-8")
+            position += 1
+        elif body[position + 1] in _UNESCAPES:
+            raw.append(_UNESCAPES[body[position + 1]])
+            position += 2
+        else:
+            raw.append(int(body[position + 1 : position + 4], 8))
+            position += 4
+    return bytes(raw)
+
+
+# Each byte that makes a path quoted, at the edge of a rule: control
+# characters, DEL, a quote, a backslash, a byte that is not UTF-8, and a UTF-8
+# surrogate, which is not UTF-8 either.
+_EDGES = [b"\x00", b"\x07", b"\x1b", b"\x1f", b"\x7f", b'"', b"\\", b"\xff", b"\xed\xa0\x80"]
+_TEXT = st.text(st.characters(exclude_categories=["Cc", "Cs"]), max_size=4).map(str.encode)
+# Paths of text with one such byte in it, or with none, which stay unquoted, or
+# of anything at all.
+_PATHS = st.one_of(
+    st.tuples(_TEXT, st.sampled_from([b"", *_EDGES]), _TEXT).map(b"".join),
+    st.lists(st.one_of(st.sampled_from(_EDGES), st.binary(max_size=3), _TEXT)).map(b"".join),
+)
+
+
+@given(_PATHS)
+def test_a_quoted_path_reads_back_as_its_bytes_and_stays_on_one_line(raw: bytes):
+    shown = quote(raw)
+    assert _unquote(shown) == raw
+    assert not any(ord(char) < 0x20 or ord(char) == 0x7F for char in shown)
 
 
 def test_check_findings_as_text_and_json():

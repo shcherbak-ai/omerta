@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import random
+import re
 from pathlib import Path
+
+from hypothesis import given
+from hypothesis import strategies as st
 
 from omerta import config
 from omerta.envfiles import EnvFile
@@ -128,38 +130,80 @@ def test_a_target_never_shows_its_forms():
     assert _KEY not in repr(_target((_KEY.encode(), "plain")))
 
 
-def _naive(data: bytes, target: Target) -> Hit | None:
-    """The first occurrence of any form, one find per form, the earlier form first."""
-    found = [(data.find(form), rank, kind) for rank, (form, kind) in enumerate(target.forms)]
-    found = [each for each in found if each[0] >= 0]
-    return Hit(min(found)[0], min(found)[2]) if found else None
+# The forms of an example are cut from one short text of two letters, often
+# the whole of it, so that they overlap each other and themselves (`aba` in
+# `ababa`), share prefixes, lie inside each other, start at one position and
+# repeat. No `<`, `|`, `>` or capital letter: those are the redaction's own,
+# and variables are named in capitals.
+_KINDS = st.sampled_from(["plain", "url", "json", "base64"])
+_NOISE = st.text("ab%", min_size=1, max_size=3).map(str.encode)
 
 
-def test_the_matcher_finds_what_a_search_of_every_form_finds(tmp_path: Path):
-    alphabet = 'abcXYZ0189-_.~/:+=@ %"\\\né'
-    generator = random.Random(20261025)
-    settings = config.Settings(patterns=(), min_chars=8, ignore=frozenset(), encoded=True)
-    for _ in range(60):
-        # Two variables, the second's value at times inside the first's, so
-        # that their forms overlap where they are found.
-        value = "".join(generator.choice(alphabet) for _ in range(generator.randint(8, 24)))
-        inner = (
-            value[: generator.randint(8, len(value))] if generator.random() < 0.5 else value[::-1]
-        )
-        lines = [json.dumps(each)[1:-1].replace("\\n", "\\\\n") for each in (value, inner)]
-        env = _env(tmp_path, ".env", f'KEY="{lines[0]}"\nINNER="{lines[1]}"\n')
-        found = targets([env], settings)
-        matcher = Matcher(found)
-        forms = [form for target in found for form, _ in target.forms]
-        for _ in range(10):
-            pieces = [generator.choice(forms) for _ in range(generator.randint(0, 3))]
-            noise = [bytes(generator.choice(b"abc019%\\/+") for _ in range(5)) for _ in range(3)]
-            parts = pieces + noise
-            generator.shuffle(parts)
-            data = b"".join(
-                part[: generator.randint(1, len(part))] if i % 2 else part
-                for i, part in enumerate(parts)
-            )
-            hits = matcher.search(data)
-            for index, target in enumerate(found):
-                assert hits.get(index) == _naive(data, target)
+@st.composite
+def _example(draw: st.DrawFn) -> tuple[list[Target], bytes]:
+    """Targets of one or two values each, built as ``targets`` builds them, and content."""
+    text = draw(st.text("ab", min_size=3, max_size=8)).encode()
+    parts = {
+        text[start:end] for start in range(len(text)) for end in range(start + 1, len(text) + 1)
+    }
+    cuts = st.one_of(st.just(text), st.sampled_from(sorted(parts)))
+    searched = []
+    for variable in draw(st.lists(st.sampled_from(["A", "B", "AB"]), min_size=1, max_size=3)):
+        members: dict[bytes, tuple[int, int, bytes, str]] = {}
+        for value in range(draw(st.integers(1, 2))):
+            for form in draw(st.lists(cuts, min_size=1, max_size=3)):
+                members.setdefault(form, (len(members), value, form, draw(_KINDS)))
+        searched.append(Target(variable, ".env", 0, tuple(members.values())))
+    content = b"".join(draw(st.lists(st.one_of(cuts, _NOISE), max_size=8)))
+    return searched, content
+
+
+def _naive(data: bytes, target: Target) -> dict[int, tuple[int, int, str]]:
+    """Where each value is first found, one find per form; at a tie, the earlier form."""
+    found: dict[int, tuple[int, int, str]] = {}
+    for rank, value, form, kind in target.members:
+        position = data.find(form)
+        if position >= 0 and (value not in found or position < found[value][0]):
+            found[value] = (position, rank, kind)
+    return found
+
+
+@given(_example())
+def test_the_matcher_finds_what_a_search_of_every_form_finds(example: tuple[list[Target], bytes]):
+    searched, content = example
+    matcher = Matcher(searched)
+    expected = {}
+    for index, target in enumerate(searched):
+        if found := _naive(content, target):
+            expected[index] = found
+    assert matcher.occurrences(content) == expected
+    hits = matcher.search(content)
+    assert hits.keys() == expected.keys()
+    for index, values in expected.items():
+        position, _, kind = min(values.values())
+        assert hits[index] == Hit(position, kind)
+
+
+def _covered(data: bytes, searched: list[Target]) -> list[bool]:
+    """For each byte, whether an occurrence of a form covers it."""
+    covered = [False] * len(data)
+    for target in searched:
+        for form, _ in target.forms:
+            for start in range(len(data) - len(form) + 1):
+                if data.startswith(form, start):
+                    covered[start : start + len(form)] = [True] * len(form)
+    return covered
+
+
+@given(_example())
+def test_redact_replaces_every_byte_of_every_occurrence_and_keeps_the_rest(
+    example: tuple[list[Target], bytes],
+):
+    searched, content = example
+    shown = redact(content, searched)
+    covered = _covered(content, searched)
+    kept = bytes(byte for byte, hidden in zip(content, covered, strict=True) if not hidden)
+    assert re.sub(rb"<[A-Z|]+>", b"", shown) == kept
+    for target in searched:
+        for form, _ in target.forms:
+            assert form not in shown

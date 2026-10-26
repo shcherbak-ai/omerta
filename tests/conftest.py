@@ -1,4 +1,4 @@
-"""Test configuration: no network, and git cut off from the user's configuration."""
+"""Test configuration: no network, git cut off from the user's configuration, and Hypothesis."""
 
 from __future__ import annotations
 
@@ -18,8 +18,20 @@ from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
 from dotenv import dotenv_values  # noqa: E402
+from hypothesis import settings  # noqa: E402
 
 from omerta.cli import main  # noqa: E402
+
+# Property tests try new examples at each local run, and keep those that failed
+# in .hypothesis/ to try first the next time. In CI (GitHub sets CI) they try
+# the same examples at each run, so that a commit passes or fails whatever the
+# chance, and a failure prints the line that replays it. No deadline: a busy
+# runner is slow, not wrong.
+settings.register_profile("local", deadline=None)
+settings.register_profile(
+    "ci", settings.get_profile("local"), derandomize=True, database=None, print_blob=True
+)
+settings.load_profile("ci" if os.environ.get("CI") else "local")
 
 # Variables of git's that would point a test's git, or omerta's, at another
 # repository, index or configuration.

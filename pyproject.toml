@@ -59,6 +59,7 @@ dev = [
     "pytest-xdist>=3.6",
     "coverage[toml]>=7.0",
     "tethered>=1.0.0",
+    "hypothesis>=6.170",
     "pre-commit>=4.0",
     "pre-commit-hooks>=6.0",
     "ruff>=0.9",
