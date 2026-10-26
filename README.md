@@ -125,6 +125,7 @@ omerta history         # every file version and message reachable from a branch,
 - **A tracked env file** is a leak in itself.
 - **Each value** is searched as written, percent-encoded, JSON-escaped and base64-encoded, in text, binary files and file names.
 - **`history`** reports a value at the commit where it enters a file.
+- **A rotated key** is no longer in your `.env`, so `history` no longer looks for it. To find the old one, put it in another untracked env file, such as `.env.old`: findings then say `(from .env.old)`.
 - **Values under 8 characters** (`true`, `5432`) are skipped. For a shorter secret, lower `min-chars`, and `ignore` what then matches ordinary text.
 
 ## Output
