@@ -141,17 +141,34 @@ A value is never printed: in a name, its variable stands in its place. The exit 
 
 ## Configuration
 
-Options go after the command, `-C PATH` before it. Settings go in `.omerta.toml` or in `[tool.omerta]` of `pyproject.toml`, and an option overrides its setting:
+Settings go in `.omerta.toml` at the root of the repository, or in `[tool.omerta]` of `pyproject.toml`:
 
-| Option | Setting | Effect |
+```toml
+# .omerta.toml
+env-files = [".env.local", ".env.*.local"]
+ignore = ["DB_HOST", "DB_USER"]
+```
+
+Each setting has an option, which overrides it for one run, except `--ignore`, which adds to it. `-C PATH` goes before the command, as in git:
+
+```bash
+omerta check --all --ignore DB_HOST --ignore DB_USER
+omerta -C ../api history --env-file .env.local --json
+```
+
+| Option | Setting and default | What it does |
 | --- | --- | --- |
-| `--env-file` | `env-files` | Env file patterns, instead of `.env` and `.env.*`; `**` matches any folders |
-| `--ignore` | `ignore` | Variables left out, added to the setting's |
-| `--min-chars` | `min-chars` | The shortest value searched for (`8`) |
-| `--no-encoded` | `encoded` | `false`: values as written only |
-| `--json`, `-q` | | JSON Lines, or the exit code and errors only |
+| `--env-file PATTERN` | `env-files = [".env", ".env.*"]` | The env files to take values from |
+| `--ignore NAME` | `ignore = []` | Variables not searched for |
+| `--min-chars N` | `min-chars = 8` | The shortest value searched for |
+| `--encoded`,<br>`--no-encoded` | `encoded = true` | Also search URL, JSON and base64 forms |
+| `--json` | | Findings as JSON Lines |
+| `-q`, `--quiet` | | Only the exit code and errors |
+| `-C PATH` | | Run as if started in `PATH` |
 
-A project that commits an env file on purpose (Symfony's `.env`, Vite's `.env.production`, dotenvx) names those that hold its secrets: `env-files = [".env.local", ".env.*.local"]`.
+`--env-file` and `--ignore` can be given more than once. Patterns are relative to the root of the repository, and `**` matches any folders.
+
+A project that commits an env file on purpose (Symfony's `.env`, Vite's `.env.production`, dotenvx) lists in `env-files` only those that hold its secrets, as in the example above.
 
 ## Requirements and security
 
