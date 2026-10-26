@@ -50,7 +50,7 @@ ignore = ["DB_HOST", "DB_USER"]
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/shcherbak-ai/omerta
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: omerta
 ```
@@ -62,7 +62,7 @@ The hook runs on pre-commit's own Python, which must be 3.11 or later: install p
 
 ```bash
 # .husky/pre-commit, or .git/hooks/pre-commit (made executable)
-uvx omerta@0.1.0 check
+uvx omerta@0.1.1 check
 ```
 
 ```yaml
@@ -70,7 +70,7 @@ uvx omerta@0.1.0 check
 pre-commit:
   commands:
     omerta:
-      run: uvx omerta@0.1.0 check
+      run: uvx omerta@0.1.1 check
 ```
 
 In a Python project, `uv add --dev omerta`, and a local pre-commit hook:
@@ -108,8 +108,8 @@ jobs:
         with:
           fetch-depth: 0  # all of the history
       - uses: astral-sh/setup-uv@v10
-      - run: uvx omerta@0.1.0 check --all
-      - run: uvx omerta@0.1.0 history
+      - run: uvx omerta@0.1.1 check --all
+      - run: uvx omerta@0.1.1 history
 ```
 
 ## What it finds

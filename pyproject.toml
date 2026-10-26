@@ -1,6 +1,6 @@
 [project]
 name = "omerta"
-version = "0.1.0"
+version = "0.1.1"
 description = "Catch .env secrets leaking into git: a pre-commit hook and CLI that fails when an API key or any value of your env files is staged, tracked or anywhere in the history. Your real values, not patterns."
 readme = "PYPI.md"
 authors = [
@@ -172,7 +172,7 @@ exclude = ["tests", "node_modules"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.1.1"
 # Commitizen replaces the version on each line that the pattern after the colon
 # finds: anchored, so that `cff-version: 1.2.0` (the format of CITATION.cff)
 # keeps its own. The README and the package description pin a release in their
