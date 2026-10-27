@@ -25,6 +25,15 @@ class Settings:
     encoded: bool
 
 
+DEFAULTS = Settings(
+    patterns=tuple(Pattern(text) for text in DEFAULT_PATTERNS),
+    min_chars=DEFAULT_MIN_CHARS,
+    ignore=frozenset(),
+    encoded=True,
+)
+"""The settings with no configuration and no options."""
+
+
 def load(
     top: Path,
     *,

@@ -9,7 +9,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import TextIO
+from typing import NoReturn, TextIO
 
 from omerta import __version__, check, config, envfiles, history
 from omerta.errors import OmertaError
@@ -32,8 +32,14 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
         if args.command == "check" and args.all and args.paths:
             check_parser.error("PATH arguments cannot be given with --all")
-    except SystemExit as exit_:
+    except SystemExit as exit_:  # --help and --version
         return exit_.code if isinstance(exit_.code, int) else 0 if exit_.code is None else 2
+    except _UsageError as usage:
+        # An argument may hold a value: pre-commit passes a staged file whose
+        # name starts with "-", which argparse reads as an option.
+        start = os.path.realpath(os.getcwd())
+        _write(sys.stderr, _hidden(str(usage), _readable(find_repository(start), None)))
+        return 2
     findings: list[Finding] = []
     searched: list[Target] = []
 
@@ -60,8 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         _write(sys.stdout, "".join(line(each, hide) + "\n" for each in ordered))
     if error is not None:
         # A path or an env file's name in the message may hold a value too.
-        message = hide(f"omerta: {error}\n".encode("utf-8", "surrogateescape"))
-        _write(sys.stderr, message.decode("utf-8", "backslashreplace"))
+        _write(sys.stderr, _hidden(f"omerta: {error}\n", searched))
         return 2
     return 1 if findings else 0
 
@@ -70,40 +75,35 @@ def _run(args: argparse.Namespace, findings: list[Finding], searched: list[Targe
     """Run a command, adding what it finds to ``findings``, and its targets to ``searched``."""
     start = os.getcwd()
     folder = start
-    for given in args.folders:
-        folder = os.path.join(folder, given)
-        if not os.path.isdir(folder):
-            raise OmertaError(f"cannot change to {given}: no such folder")
-    # Where its links lead, as git sees it: git's `--show-cdup` climbs from there.
-    folder = os.path.realpath(folder)
-    executable = find_executable(
-        os.environ.get("PATH", ""), [start, folder], find_repository(folder)
-    )
-    git = Git(executable, folder, environment())
-    git.open()
-    if args.command == "history" and git.is_shallow():
-        raise OmertaError(
-            "this repository is a shallow clone, whose history stops at a cut: fetch all of it "
-            "(in CI, check out with fetch-depth: 0)"
-        )
-    top = Path(git.top)
-    settings = config.load(
-        top,
-        env_files=args.env_files,
-        min_chars=args.min_chars,
-        ignore=args.ignore,
-        encoded=args.encoded,
-    )
-    index = git.index()
-    sources = envfiles.find(top, settings.patterns, {entry.path for entry in index})
+    top = None
     try:
+        for given in args.folders:
+            folder = os.path.join(folder, given)
+            if not os.path.isdir(folder):
+                raise OmertaError(f"cannot change to {given}: no such folder")
+        # Where its links lead, as git sees it: git's `--show-cdup` climbs from there.
+        folder = os.path.realpath(folder)
+        executable = find_executable(
+            os.environ.get("PATH", ""), [start, folder], find_repository(folder)
+        )
+        git = Git(executable, folder, environment())
+        git.open()
+        top = git.top
+        if args.command == "history" and git.is_shallow():
+            raise OmertaError(
+                "this repository is a shallow clone, whose history stops at a cut: fetch all of "
+                "it (in CI, check out with fetch-depth: 0)"
+            )
+        settings = _settings(Path(top), args)
+        index = git.index()
+        sources = envfiles.find(Path(top), settings.patterns, {entry.path for entry in index})
         searched.extend(targets(sources, settings))
     except OmertaError:
-        # The error names an env file, whose name may hold a value of another:
+        # The error may name a path or an env file whose name holds a value:
         # the values of every env file that can be read are hidden in it.
-        for source in sources:
-            with contextlib.suppress(OmertaError):
-                searched.extend(targets([source], settings))
+        if top is None:
+            top = find_repository(os.path.realpath(folder))
+        searched.extend(_readable(top, args))
         raise
     if args.command == "check":
         entries = check.select(git, index, args.paths, args.all)
@@ -112,9 +112,62 @@ def _run(args: argparse.Namespace, findings: list[Finding], searched: list[Targe
         history.run(git, searched, settings.patterns, findings)
 
 
+def _settings(top: Path, args: argparse.Namespace | None) -> config.Settings:
+    """The settings of a run: the options of ``args``, if read, over the configuration."""
+    if args is None:
+        return config.load(top)
+    return config.load(
+        top,
+        env_files=args.env_files,
+        min_chars=args.min_chars,
+        ignore=args.ignore,
+        encoded=args.encoded,
+    )
+
+
+def _readable(top: str | None, args: argparse.Namespace | None) -> list[Target]:
+    """The targets of every env file that can be read, to hide in an error.
+
+    For an error that comes before the search has its own: the env files of the
+    repository at ``top``, tracked ones too, as the index may not have been
+    read, with the settings of the run, or the defaults where those cannot be
+    read.
+    """
+    found: list[Target] = []
+    if top is None:
+        return found
+    try:
+        settings = _settings(Path(top), args)
+    except OmertaError:
+        settings = config.DEFAULTS
+    with contextlib.suppress(OmertaError):
+        for source in envfiles.find(Path(top), settings.patterns, set()):
+            with contextlib.suppress(OmertaError):
+                found.extend(targets([source], settings))
+    return found
+
+
+def _hidden(text: str, searched: list[Target]) -> str:
+    """``text`` with each value of the env files replaced by its variable's name."""
+    data = redact(text.encode("utf-8", "surrogateescape"), searched)
+    return data.decode("utf-8", "backslashreplace")
+
+
+class _UsageError(Exception):
+    """A command line that cannot be read: argparse's usage and message, not yet printed."""
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse's parser, whose errors are raised, to be printed with the values hidden."""
+
+    def error(self, message: str) -> NoReturn:
+        """Raise the usage and ``message``, as argparse would print them."""
+        raise _UsageError(f"{self.format_usage()}{self.prog}: error: {message}\n")
+
+
 def _parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     """The parser of the command line, and that of ``check``."""
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="omerta",
         description="Fail when a value of your env files, e.g. an API key in .env, is in git.",
     )
@@ -128,7 +181,7 @@ def _parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     parser.add_argument("--version", action="version", version=f"omerta {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
-    options = argparse.ArgumentParser(add_help=False)
+    options = _Parser(add_help=False)
     options.add_argument(
         "--min-chars",
         type=_positive,

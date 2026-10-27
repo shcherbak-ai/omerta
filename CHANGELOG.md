@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Each versio
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Errors that come before the env files are read hide their values too, as other errors do. A usage error repeated a value in an argument, such as a staged file whose name starts with `-`, which pre-commit passes and which is read as an option; so did the error for a `-C` folder that does not exist, and for a `GIT_INDEX_FILE` that names no file.
+
 ## [0.1.1] - 2026-10-26
 
 ### Fixed
@@ -21,5 +27,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - A pre-commit hook, `omerta`.
 - Its two dependencies, python-dotenv and hyperscan, pinned to exact versions: a new release of either reaches users only through a release of omerta.
 
+[Unreleased]: https://github.com/shcherbak-ai/omerta/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/shcherbak-ai/omerta/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/shcherbak-ai/omerta/releases/tag/v0.1.0

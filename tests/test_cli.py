@@ -47,6 +47,34 @@ def test_a_usage_error_exits_with_2(omerta, tmp_path: Path, args: list[str], pro
     assert problem in result.err
 
 
+@pytest.mark.parametrize("configuration", ["", "min-chars = 0\n"])
+def test_a_usage_error_names_an_argument_with_its_values_hidden(
+    omerta, repo: Repo, configuration: str
+):
+    repo.write(".env", "BUCKET=acme-prod-data-7731\n")
+    # A configuration that cannot be read leaves the default env files.
+    repo.write(".omerta.toml", configuration)
+    (repo.path / "sub").mkdir()
+    # pre-commit passes the staged files after its args: one whose name starts
+    # with "-" is read as an option.
+    result = omerta("check", "-acme-prod-data-7731.json", cwd=repo.path / "sub")
+    assert (result.code, result.out) == (2, "")
+    assert result.err.startswith("usage: omerta [-h]")
+    assert result.err.endswith("\nomerta: error: unrecognized arguments: -<BUCKET>.json\n")
+
+
+def test_an_error_before_the_env_files_are_read_names_their_values_hidden(
+    omerta, repo: Repo, monkeypatch: pytest.MonkeyPatch
+):
+    repo.write(".env", "BUCKET=acme-prod-data-7731\n")
+    (repo.path / "sub").mkdir()
+    missing = omerta("-C", "acme-prod-data-7731", "check", cwd=repo.path / "sub")
+    assert missing.err == "omerta: cannot change to <BUCKET>: no such folder\n"
+    monkeypatch.setenv("GIT_INDEX_FILE", ".git/acme-prod-data-7731")
+    index = omerta("check", cwd=repo.path)
+    assert index.err == "omerta: GIT_INDEX_FILE names .git/<BUCKET>, which is not a file\n"
+
+
 def test_outside_a_repository_omerta_exits_with_2(
     omerta, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
