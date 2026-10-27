@@ -65,6 +65,7 @@ The hook runs on pre-commit's own Python, which must be 3.11 or later: install p
 <summary>Husky, Lefthook, a plain git hook, or omerta pinned in your lockfile</summary>
 
 ```bash
+#!/bin/sh
 # .husky/pre-commit, or .git/hooks/pre-commit (made executable)
 uvx omerta@0.1.1 check
 ```
@@ -108,10 +109,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0  # all of the history
-      - uses: astral-sh/setup-uv@v10
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
       - run: uvx omerta@0.1.1 check --all
       - run: uvx omerta@0.1.1 history
 ```
