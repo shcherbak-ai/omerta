@@ -14,11 +14,16 @@ concurrency:
   group: publish-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
+# Checkouts leave no token in .git/config (persist-credentials: false): the
+# build's smoke test runs the code of the dependencies.
 permissions:
   contents: read
 
 env:
   UV_VERSION: "0.13.4"
+  # The SHA-256 of its uv-x86_64-unknown-linux-gnu.tar.gz, which setup-uv
+  # checks the download against (see ci.yml): uv is also the build backend.
+  UV_LINUX_X64_SHA256: "2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f"
 
 jobs:
   publish-gate:
@@ -31,12 +36,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify v* tag on main
         id: check
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          SHA="${{ github.event.workflow_run.head_sha }}"
-
           # Check for an actual v* tag pointing at this commit
           TAG=$(git tag --points-at "$SHA" | grep '^v' | head -n1)
           if [ -z "$TAG" ]; then
@@ -65,11 +71,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
 
+      # setup-uv's cache is off in a workflow_run, and uv build uses uv's own
+      # backend: the build downloads nothing but uv and Python.
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: ${{ env.UV_VERSION }}
+          checksum: ${{ env.UV_LINUX_X64_SHA256 }}
 
       - name: Set up Python from .python-version
         run: uv python install

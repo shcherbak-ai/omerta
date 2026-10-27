@@ -13,6 +13,8 @@ on:
 # push to main and its tag start two CI runs, and either can publish it; the
 # publish workflow's concurrency group cancels the duplicate.
 
+# Checkouts leave no token in .git/config (persist-credentials: false): the
+# steps after them run the code of the dependencies.
 permissions:
   contents: read
 
@@ -20,6 +22,12 @@ env:
   # 0.13.4 is younger than the week of the cooldown, and fixes the CA store
   # of 0.13.0 to 0.13.3 (GHSA-hq85-5cpj-mr62).
   UV_VERSION: "0.13.4"
+  # The SHA-256 of its uv-x86_64-unknown-linux-gnu.tar.gz, which setup-uv
+  # checks the Linux jobs' download against: it knows the checksums of the uv
+  # releases before its own only, and takes the others from a list it fetches
+  # as it runs. A new UV_VERSION fails there until this follows it. The test
+  # matrix, which holds no secret, keeps setup-uv's own check.
+  UV_LINUX_X64_SHA256: "2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f"
 
 jobs:
   lint:
@@ -27,11 +35,14 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: ${{ env.UV_VERSION }}
+          checksum: ${{ env.UV_LINUX_X64_SHA256 }}
 
       - name: Set up Python from .python-version
         run: uv python install
@@ -58,6 +69,10 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    # The coverage of the one cell that measures it, for the badge: the other
+    # cells leave the output empty, which does not override it.
+    outputs:
+      coverage: ${{ steps.coverage.outputs.pct }}
     env:
       # .python-version pins the development interpreter. Without this, a
       # plain `uv run` rebuilds the environment on that pin, and every cell
@@ -71,6 +86,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
@@ -102,16 +119,34 @@ jobs:
           PCT=$(python3 -c "print(round(float('$RATE') * 100))")
           echo "pct=$PCT" >> "$GITHUB_OUTPUT"
 
+  # The coverage badge, on main: in a job of its own, which runs no code of the
+  # project or of its dependencies, so that the gist token is never in a job
+  # with them, where a step can leave code for a later step's action to run
+  # (NODE_OPTIONS in GITHUB_ENV, a file of the action).
+  coverage-badge:
+    needs: [test]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the coverage percentage
+        env:
+          PCT: ${{ needs.test.outputs.coverage }}
+        run: |
+          if ! [[ "$PCT" =~ ^[0-9]{1,3}$ ]]; then
+            echo "::error::The test job gave no coverage percentage."
+            exit 1
+          fi
+
       - name: Update coverage badge
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14' && github.ref == 'refs/heads/main'
         uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910  # v1.9.0
         with:
           auth: ${{ secrets.GIST_TOKEN }}
           gistID: ${{ vars.COVERAGE_GIST_ID }}
           filename: omerta-coverage.json
           label: coverage
-          message: ${{ steps.coverage.outputs.pct }}%
-          valColorRange: ${{ steps.coverage.outputs.pct }}
+          message: ${{ needs.test.outputs.coverage }}%
+          valColorRange: ${{ needs.test.outputs.coverage }}
           minColorRange: 50
           maxColorRange: 100
 
@@ -119,7 +154,9 @@ jobs:
   # a change to the matrix never leaves it waiting for a job that is gone. It
   # runs whatever the jobs before it did, as a skipped required check counts as
   # passed, and passes only when each of them passed (a matrix job's result is
-  # that of all its cells).
+  # that of all its cells). The badge, which runs on main only, after a merge,
+  # is not among them; the run, which the publish workflow waits for, still
+  # fails with it.
   ci-passed:
     name: CI passed
     if: always()

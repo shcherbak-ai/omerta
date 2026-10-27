@@ -26,7 +26,10 @@ jobs:
         language: [python]
 
     steps:
+      # No token left in .git/config: CodeQL's actions take their own.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d  # v4.38.3
