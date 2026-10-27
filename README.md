@@ -201,7 +201,7 @@ A project that commits an env file on purpose (Symfony's `.env`, Vite's `.env.pr
   </tr>
   <tr>
     <td width="36%" align="center"><a href="https://github.com/shcherbak-ai/tethered"><img src="assets/tethered-wordmark.svg" alt="tethered" width="252"></a></td>
-    <td>Network egress control for CLI tools and agent workflows.</td>
+    <td>Runtime network egress control for Python.</td>
   </tr>
 </table>
 <!-- markdownlint-enable MD033 -->
