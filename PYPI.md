@@ -16,12 +16,12 @@ As a pre-commit hook:
 ```yaml
 repos:
   - repo: https://github.com/shcherbak-ai/omerta
-    rev: v0.1.1
+    rev: v0.1.2
     hooks:
       - id: omerta
 ```
 
-With Husky, Lefthook or a plain git hook: `uvx omerta@0.1.1 check`.
+With Husky, Lefthook or a plain git hook: `uvx omerta@0.1.2 check`.
 
 See the [repository](https://github.com/shcherbak-ai/omerta#readme) for the options, CI and configuration.
 
