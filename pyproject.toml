@@ -81,9 +81,6 @@ exclude-newer = "7 days"
 # Security fixes taken inside the cooldown, up to their uploads: the advisories
 # hook says when an entry is no longer needed.
 [tool.uv.exclude-newer-package]
-# 2026.10.19 drops the root CAs whose intermediate keys were compromised
-# (GHSA-6q48-6c7w-9gw2)
-certifi = "2026-10-20T02:25:00Z"
 # 21.14.13 escapes the --prompt value in the Bash activator (GHSA-cx6f-vjhg-g3cc)
 virtualenv = "2026-10-22T20:11:00Z"
 
