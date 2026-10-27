@@ -71,6 +71,7 @@ dev = [
     "commitizen>=4.13",
     "invoke>=2.2",
     "licenseal>=1.0.1",
+    "zizmor>=1.31",
 ]
 
 [tool.uv]

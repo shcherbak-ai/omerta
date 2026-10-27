@@ -6,8 +6,15 @@ name: Publish
 # finished is still released. No branch filter: to one, a tag's run has the
 # tag's name for its branch, and `branches: [main]` would leave it out. Once
 # PyPI has the release, the last job makes its GitHub release.
+#
+# A workflow_run has the repository's secrets and token even when a fork's
+# pull request started the CI run. Nothing is checked out from that run or
+# published unless the gate finds a v* tag of this repository on its commit
+# and that commit on main, and the pypi environment accepts deployments from
+# main only: that is why zizmor's dangerous-triggers finding is ignored on the
+# trigger.
 on:
-  workflow_run:
+  workflow_run:  # zizmor: ignore[dangerous-triggers]
     workflows: [CI]
     types: [completed]
 

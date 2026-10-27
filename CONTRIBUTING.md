@@ -28,6 +28,7 @@ Run automatically on every commit:
 - **ruff**: linting and formatting
 - **ty**: type checking ([Astral's type checker](https://docs.astral.sh/ty/))
 - **deptry**: dependency declaration/import consistency
+- **zizmor**: the security of the GitHub workflows, offline, at a commit that changes one ([zizmor](https://docs.zizmor.sh/))
 - **uv lock check**: `uv.lock` matches `pyproject.toml`
 - **advisories**: a release enters `uv.lock` and `package-lock.json` only a week after its upload, and no locked version, nor the uv that the workflows pin, has an advisory at [osv.dev](https://osv.dev) (below)
 - **licenseal**: the licences of the package's own dependencies, at a commit that changes `pyproject.toml` or `uv.lock`, as it asks PyPI for each package ([below](#dependency-licenses))
