@@ -89,7 +89,7 @@ uv run licenseal check --no-dev -f markdown -o LICENSES.md
 
 The examples pin a release (`omerta@X.Y.Z`, `rev: vX.Y.Z`). `cz bump` moves the pins with the version, and a test fails when one names another version.
 
-Look at a change as GitHub will show it before pushing it. `uv run inv readme-preview` serves `README.md` in GitHub's light theme at <http://127.0.0.1:9120/> and in its dark theme at <http://127.0.0.1:9121/> (`--port N` serves them at N and N+1):
+Look at a change as GitHub will show it before pushing it. `uv run inv readme-preview` serves `README.md` in GitHub's light theme at <http://127.0.0.1:9130/> and in its dark theme at <http://127.0.0.1:9131/> (`--port N` serves them at N and N+1):
 
 - The HTML is what GitHub's Markdown API returns for the file, so what GitHub removes from a README is removed here too.
 - The look comes from github-markdown-css, in GitHub's colours, each page in its theme whatever the browser is set to. The column is as wide as GitHub's at 1280 pixels and wider, and below 768.

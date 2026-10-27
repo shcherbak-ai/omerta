@@ -253,7 +253,7 @@ class _ReadmePreview(http.server.SimpleHTTPRequestHandler):
 
 
 @task(name="readme-preview")
-def readme_preview(c: Context, port: int = 9120) -> None:
+def readme_preview(c: Context, port: int = 9130) -> None:
     """
     Serve README.md as GitHub renders it, to look at before it is pushed.
 
@@ -264,11 +264,11 @@ def readme_preview(c: Context, port: int = 9120) -> None:
     README has an alert: 60 an hour are allowed without a token.
 
     Args:
-        port: Port of the light page; the dark one is on the next (default: 9120)
+        port: Port of the light page; the dark one is on the next (default: 9130)
 
     Example:
         uv run inv readme-preview
-        uv run inv readme-preview --port 9122
+        uv run inv readme-preview --port 9132
     """
     if not all((_ROOT / _MARKDOWN_CSS.format(scheme=s)).is_file() for s in _PREVIEW_SCHEMES):
         raise Exit("The preview needs github-markdown-css. Install it first: npm ci", code=1)
