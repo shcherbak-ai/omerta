@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import itertools
 import re
@@ -9,6 +10,7 @@ import sys
 import tomllib
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -73,20 +75,32 @@ def test_the_examples_pin_the_current_version():
         assert {pin for pair in pins for pin in pair if pin} == {omerta.__version__}
 
 
+@contextlib.contextmanager
+def _script(name: str) -> Iterator[ModuleType]:
+    """A module of scripts/, imported for the length of a test."""
+    spec = importlib.util.spec_from_file_location(name, _ROOT / "scripts" / f"{name}.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+        yield module
+    finally:
+        del sys.modules[name]
+
+
 @pytest.fixture
 def date_release() -> Iterator[Callable[..., tuple[str, str]]]:
     """The dating function of scripts/date_release.py."""
-    spec = importlib.util.spec_from_file_location(
-        "date_release", _ROOT / "scripts" / "date_release.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["date_release"] = module
-    try:
-        spec.loader.exec_module(module)
+    with _script("date_release") as module:
         yield module.date_release
-    finally:
-        del sys.modules["date_release"]
+
+
+@pytest.fixture
+def release_notes() -> Iterator[ModuleType]:
+    """scripts/release_notes.py, which the publish workflow runs."""
+    with _script("release_notes") as module:
+        yield module
 
 
 _MENTIONS = (
@@ -154,3 +168,71 @@ def test_a_bump_stops_on_a_changelog_or_citation_it_cannot_date(
     )
     with pytest.raises(ValueError, match=error):
         date_release(changelog, citation, "0.2.0", "v0.2.0", "2026-11-09", "0.1.0")
+
+
+def test_each_release_has_the_notes_of_its_github_release(release_notes):
+    # The publish workflow takes them before it uploads anything, so a version
+    # without notes would stop its release.
+    versions = re.findall(r"^## \[(.+?)\] - \d{4}-\d{2}-\d{2}$", _CHANGELOG, re.MULTILINE)
+    for version in versions:
+        notes = release_notes.release_notes(_CHANGELOG, version)
+        assert notes in _CHANGELOG
+        assert notes == notes.strip() + "\n"
+        assert not re.search(r"^## \[|^\[[^\]]+\]: ", notes, re.MULTILINE)
+
+
+_RELEASES = (
+    f"# Changelog\n\n{_MENTIONS}"
+    "## [Unreleased]\n\n- C\n\n"
+    "## [0.2.0] - 2026-11-09\n\n### Fixed\n\n- B — not in [0.1.0]\n\n"
+    "## [0.1.0] - 2026-11-02\n\n### Added\n\n- A\n\n"
+    f"[Unreleased]: {_COMPARE}v0.2.0...HEAD\n"
+    f"[0.2.0]: {_COMPARE}v0.1.0...v0.2.0\n"
+    f"[0.1.0]: {_REPOSITORY}/releases/tag/v0.1.0\n"
+)
+
+
+def test_the_notes_of_a_release_are_its_section(release_notes):
+    # Up to the next section, or for the oldest, up to the links
+    assert release_notes.release_notes(_RELEASES, "0.2.0") == "### Fixed\n\n- B — not in [0.1.0]\n"
+    assert release_notes.release_notes(_RELEASES, "0.1.0") == "### Added\n\n- A\n"
+
+
+@pytest.mark.parametrize(
+    ("changelog", "version", "error"),
+    [
+        # Not released
+        (_RELEASES, "0.3.0", "no dated section"),
+        # Not yet named and dated by `cz bump`
+        (_RELEASES, "Unreleased", "no dated section"),
+        # Only the start of a version
+        (_RELEASES, "0.2", "no dated section"),
+        # The dots are dots
+        (_RELEASES, "0x2x0", "no dated section"),
+        # Headings only
+        (
+            _RELEASES.replace("### Fixed\n\n- B — not in [0.1.0]\n\n", "### Fixed\n\n"),
+            "0.2.0",
+            "empty",
+        ),
+    ],
+)
+def test_a_release_without_notes_stops(release_notes, changelog: str, version: str, error: str):
+    with pytest.raises(ValueError, match=error):
+        release_notes.release_notes(changelog, version)
+
+
+def test_the_script_prints_the_notes_in_utf8_or_says_why_not(
+    release_notes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsysbinary
+):
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_bytes(_RELEASES.encode("utf-8"))
+    monkeypatch.setattr(release_notes, "_CHANGELOG", changelog)
+    assert release_notes.main(["0.2.0"]) == 0
+    assert capsysbinary.readouterr() == ("### Fixed\n\n- B — not in [0.1.0]\n".encode(), b"")
+    assert release_notes.main(["0.3.0"]) == 1
+    out, err = capsysbinary.readouterr()
+    assert out == b""
+    assert b"no dated section" in err
+    assert release_notes.main([]) == 1
+    assert b"Usage" in capsysbinary.readouterr().err
