@@ -9,6 +9,7 @@
 <p align="center">
 <a href="https://pypi.org/project/omerta/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/omerta?style=flat-square&labelColor=18181b&color=047857"></a>
 <a href="https://pypi.org/project/omerta/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/omerta?style=flat-square&labelColor=18181b&color=047857"></a>
+<a href="https://pepy.tech/projects/omerta"><img alt="Total downloads" src="https://img.shields.io/pepy/dt/omerta?style=flat-square&labelColor=18181b&color=047857&label=downloads"></a>
 <a href="https://github.com/shcherbak-ai/omerta/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shcherbak-ai/omerta/ci.yml?branch=main&style=flat-square&labelColor=18181b&label=CI"></a>
 <a href="https://github.com/shcherbak-ai/omerta/actions/workflows/ci.yml"><img alt="Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SergiiShcherbak/2fdc79fecbd56af5002d93032a6be5f3/raw/omerta-coverage.json&style=flat-square&labelColor=18181b&color=047857"></a>
 </p>
