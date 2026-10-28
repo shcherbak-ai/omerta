@@ -67,21 +67,12 @@ COOLDOWN_DAYS = 7
 # upload, in UTC: the check fails once the cooldown admits it, so that the fix
 # is taken and the entry removed. A report of a malicious package (MAL-) is
 # never accepted.
-_MARKDOWNLINT_0_24 = (
-    "a slow parse of the repository's own Markdown or TOML in markdownlint-cli2, fixed in "
-    "0.24.0: raise its range in package.json",
-    "2026-10-21T06:59:51Z",
-)
 ACCEPTED_ADVISORIES: dict[str, tuple[str, str | None]] = {
     "GHSA-238p-pmpm-9mq7": (
         "katex, through markdownlint: low severity, fixed in 0.18.2 only, which "
         "micromark-extension-math (^0.16.0) does not admit",
         None,
     ),
-    "GHSA-gfr2-rv44-r23c": _MARKDOWNLINT_0_24,
-    "GHSA-r7fv-28h4-cvq7": _MARKDOWNLINT_0_24,
-    "GHSA-vfgh-jcmw-g37q": _MARKDOWNLINT_0_24,
-    "GHSA-r4xh-jqrq-34v2": _MARKDOWNLINT_0_24,
 }
 
 # The batch query of osv.dev, for the advisories of many versions at once.
