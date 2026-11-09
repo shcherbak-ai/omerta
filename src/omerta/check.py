@@ -44,15 +44,39 @@ def select(git: Git, index: list[Entry], paths: list[str], everything: bool) -> 
 
 
 def _from_root(git: Git, path: str) -> bytes:
-    """A PATH argument as an index path: from the root, with ``/``; empty for the root."""
+    """A PATH argument as an index path: from the root, with ``/``; empty for the root.
+
+    The path is taken as it is written, which is how git has a path that goes
+    through a junction. Written under another name of the repository's folder
+    (a link to it, a Windows short name), it is outside the root: it is then
+    taken where the links of its folder lead, which keeps a link that it names
+    itself and that git tracks, and at last where its own lead.
+
+    Raises:
+        OmertaError: The path is outside the repository however it is taken.
+    """
+    top = os.path.abspath(git.top)
     full = os.path.abspath(os.path.join(git.folder, path))
-    try:
-        relative = os.path.relpath(full, os.path.abspath(git.top))
-    except ValueError:  # on another drive
-        relative = os.pardir
-    if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+    relative = _under(full, top)
+    if relative is None:
+        folder, name = os.path.split(full)
+        relative = _under(os.path.join(os.path.realpath(folder), name), top)
+    if relative is None:
+        relative = _under(os.path.realpath(full), top)
+    if relative is None:
         raise OmertaError(f"{path} is outside the repository")
     return b"" if relative == os.curdir else os.fsencode(relative.replace(os.sep, "/"))
+
+
+def _under(path: str, top: str) -> str | None:
+    """A path relative to the root, or ``None`` where it is outside the root."""
+    try:
+        relative = os.path.relpath(path, top)
+    except ValueError:  # on another drive
+        return None
+    if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        return None
+    return relative
 
 
 def run(

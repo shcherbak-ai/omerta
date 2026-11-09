@@ -9,7 +9,7 @@ import urllib.parse
 
 import pytest
 
-from conftest import Repo
+from conftest import Repo, link_folder
 from omerta.search import LITERAL_LIMIT
 
 _KEY = "sk-test-0123456789abcdef"
@@ -376,6 +376,37 @@ def test_a_path_may_name_the_root_or_an_absolute_path(project: Repo, omerta):
     assert omerta("check", str(project.path / "b.py"), cwd=project.path / "src").lines == [
         expected[0]
     ]
+
+
+def test_a_path_under_another_name_of_the_repository_selects_its_entries(
+    project: Repo, omerta, tmp_path
+):
+    project.write("src/a.py", f"{_KEY}\n")
+    project.add("src/a.py")
+    # A link to a folder that git tracks: an entry of its own, with the text of its target.
+    project.index_info(("120000", project.blob("src"), 0, b"alias"))
+    link_folder(project.path / "alias", project.path / "src")
+    # The repository under another name: on Windows a junction, elsewhere a symbolic link.
+    other = tmp_path / "other-name"
+    link_folder(other, project.path)
+    found = ["src/a.py:1: API_KEY (from .env)"]
+    for path in (other / "src" / "a.py", other / "src", other):
+        assert omerta("check", str(path), cwd=project.path).lines == found
+    # A link that the path names itself is not followed: the path is its entry's.
+    alias = omerta("check", str(other / "alias"), cwd=project.path)
+    assert (alias.code, alias.out, alias.err) == (0, "", "")
+
+
+def test_a_path_through_a_link_inside_the_repository_is_taken_as_it_is_written(
+    project: Repo, omerta
+):
+    # Git for Windows takes a junction for a folder, and has the files under it
+    # at their paths through it, which is what pre-commit passes.
+    project.index_info(("100644", project.blob(f"{_KEY}\n"), 0, b"via/b.py"))
+    (project.path / "src").mkdir()
+    link_folder(project.path / "via", project.path / "src")
+    result = omerta("check", "via/b.py", cwd=project.path)
+    assert result.lines == ["via/b.py:1: API_KEY (from .env)"]
 
 
 def test_paths_that_need_it_are_quoted(project: Repo, omerta):

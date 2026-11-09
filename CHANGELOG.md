@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - An editor's swap file (`*.sw?`) is not read as an env file: with `.env` open in Vim, every run ended with an error on `.env.swp`. A tracked one is still reported as a tracked env file.
 - On Windows, a junction to a folder is not followed when env files are looked for, as a symbolic link to a folder is not. With a pattern that names folders, such as `**/.env`, a junction that leads back to a folder above it ended the run with an error, and one that leads elsewhere brought in the env files there.
 - A repository whose remote has a `partialclonefilter` but no `promisor` setting is taken for a partial clone, as git takes it: omerta refuses it where git is older than 2.45, which could fetch a missing object there.
+- A PATH written under another name of the repository's folder, such as a symbolic link to it or a Windows short name, selects the files it names. It was refused as outside the repository.
 - A usage error under `-C` hides the values of the env files of that folder's repository. It took them from the folder omerta was started in, and so repeated a value in an argument, such as a file whose name starts with `-`.
 
 ## [0.1.2] - 2026-10-27
