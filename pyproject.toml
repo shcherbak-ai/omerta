@@ -82,8 +82,6 @@ exclude-newer = "7 days"
 # Security fixes taken inside the cooldown, up to their uploads: the advisories
 # hook says when an entry is no longer needed.
 [tool.uv.exclude-newer-package]
-# 21.14.13 escapes the --prompt value in the Bash activator (GHSA-cx6f-vjhg-g3cc)
-virtualenv = "2026-10-22T20:11:00Z"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

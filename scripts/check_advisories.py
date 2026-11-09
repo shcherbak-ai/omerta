@@ -73,6 +73,12 @@ ACCEPTED_ADVISORIES: dict[str, tuple[str, str | None]] = {
         "micromark-extension-math (^0.16.0) does not admit",
         None,
     ),
+    "GHSA-gg6h-894w-4m9c": (
+        "re2js, through markdownlint: quadratic only with the LOOKBEHINDS flag, which "
+        "markdownlint never sets; fixed in 2.8.7, but markdownlint-cli2 0.24.0 pins "
+        "markdownlint 0.42.0, which pins re2js 2.8.6",
+        None,
+    ),
 }
 
 # The batch query of osv.dev, for the advisories of many versions at once.
