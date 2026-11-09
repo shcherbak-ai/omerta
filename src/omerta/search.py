@@ -16,6 +16,10 @@ Member = tuple[int, int, bytes, str]
 Occurrence = tuple[int, int, str]
 """Where a value is first found: the position, the rank of the form there, and its kind."""
 
+# The longest literal Hyperscan takes, in bytes. An encoded form is longer than
+# its value: a few thousand characters of JSON pass it once percent-encoded.
+LITERAL_LIMIT = 16000
+
 
 @dataclass(frozen=True)
 class Target:
@@ -89,6 +93,9 @@ class Matcher:
 
     Each form is a literal reported at its first occurrence only, which is all a
     search needs: a form's first end, less its length, is its first position.
+    A form longer than Hyperscan takes (``LITERAL_LIMIT``) has its start as its
+    literal: content without that start is without the form, and content with
+    it is searched for the whole form from there.
     """
 
     def __init__(self, searched: list[Target]) -> None:
@@ -96,6 +103,8 @@ class Matcher:
         # For each form, every target that has it: the target's index, the
         # value's index, the form's rank in the target, and its kind.
         self._owners: list[list[tuple[int, int, int, str]]] = []
+        # For each literal, the forms that it is or that it starts.
+        started: dict[bytes, list[int]] = {}
         numbers: dict[bytes, int] = {}
         for index, target in enumerate(searched):
             for rank, value, form, kind in target.members:
@@ -103,15 +112,17 @@ class Matcher:
                     numbers[form] = len(self._forms)
                     self._forms.append(form)
                     self._owners.append([])
+                    started.setdefault(form[:LITERAL_LIMIT], []).append(numbers[form])
                 self._owners[numbers[form]].append((index, value, rank, kind))
+        self._started = list(started.values())
         self._database = None
-        if self._forms:
+        if started:
             self._database = hyperscan.Database(mode=hyperscan.HS_MODE_BLOCK)
             self._database.compile(
-                expressions=self._forms,
-                ids=list(range(len(self._forms))),
-                elements=len(self._forms),
-                flags=[hyperscan.HS_FLAG_SINGLEMATCH] * len(self._forms),
+                expressions=list(started),
+                ids=list(range(len(started))),
+                elements=len(started),
+                flags=[hyperscan.HS_FLAG_SINGLEMATCH] * len(started),
                 literal=True,
             )
 
@@ -125,19 +136,29 @@ class Matcher:
         """
         if self._database is None:
             return {}
-        starts: dict[int, int] = {}
+        ends: dict[int, int] = {}
 
-        def matched(form: int, start: int, end: int, *_: object) -> None:
-            """Note where a form is first found (its flags and context are not used)."""
-            starts.setdefault(form, end - len(self._forms[form]))
+        def matched(literal: int, start: int, end: int, *_: object) -> None:
+            """Note where a literal first ends (its flags and context are not used)."""
+            ends.setdefault(literal, end)
 
         self._database.scan(data, match_event_handler=matched)
         found: dict[int, dict[int, Occurrence]] = {}
-        for form, position in starts.items():
-            for index, value, rank, kind in self._owners[form]:
-                values = found.setdefault(index, {})
-                if value not in values or (position, rank) < values[value][:2]:
-                    values[value] = (position, rank, kind)
+        for literal, end in ends.items():
+            for form in self._started[literal]:
+                whole = self._forms[form]
+                if len(whole) <= LITERAL_LIMIT:
+                    position = end - len(whole)
+                else:
+                    # The literal is the form's start only, and no occurrence
+                    # of the form comes before the first of its start.
+                    position = data.find(whole, end - LITERAL_LIMIT)
+                    if position < 0:
+                        continue
+                for index, value, rank, kind in self._owners[form]:
+                    values = found.setdefault(index, {})
+                    if value not in values or (position, rank) < values[value][:2]:
+                        values[value] = (position, rank, kind)
         return found
 
     def search(self, data: bytes) -> dict[int, Hit]:

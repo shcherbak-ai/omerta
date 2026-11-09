@@ -2,11 +2,14 @@
 # pre-commit passes the staged files at a commit, and every tracked file with
 # --all-files. It passes a file only if it has every tag of `types`, by default
 # `file`, which a symbolic link (tagged `symlink` only) lacks: hence `types: []`
-# and `types_or`.
+# and `types_or`. The files come after the `args`, which end with `--`: a file
+# at the root with the name of an option (`-h`, `--env-file`) is then read as a
+# path, not as the option.
 - id: omerta
   name: omerta
   description: "Catch .env secrets leaking into git: fails when an API key or any value of your env files is in a staged file."
   entry: omerta check
+  args: [--]
   language: python
   types: []
   types_or: [file, symlink]

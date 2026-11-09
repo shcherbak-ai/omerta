@@ -13,8 +13,13 @@ from pathlib import Path
 from dotenv.parser import parse_stream
 
 from omerta.errors import OmertaError
+from omerta.git import WINDOWS
 from omerta.output import quote
-from omerta.patterns import Pattern, is_template
+from omerta.patterns import Pattern, is_swap_file, is_template
+
+# The reparse tag of a Windows junction (IO_REPARSE_TAG_MOUNT_POINT), which the
+# `stat` module names on Windows only.
+_JUNCTION = 0xA0000003
 
 
 @dataclass(frozen=True)
@@ -32,9 +37,9 @@ def find(top: Path, patterns: tuple[Pattern, ...], tracked: set[bytes]) -> list[
 
     Each pattern's folders are walked with :func:`os.scandir`: ``.git`` is never
     entered, nor a folder that holds a ``.git`` of its own (a submodule, a
-    nested repository), nor a symbolic link to a folder; a symbolic link to a
-    file is read through. A folder that matches a pattern is no env file, and
-    neither is a template.
+    nested repository), nor a symbolic link to a folder or a Windows junction;
+    a symbolic link to a file is read through. A folder that matches a pattern
+    is no env file, and neither is a template or an editor's swap file.
 
     Args:
         top: The root of the repository.
@@ -51,7 +56,9 @@ def find(top: Path, patterns: tuple[Pattern, ...], tracked: set[bytes]) -> list[
     for pattern in patterns:
         for parts in sorted(set(_walk(top, (), pattern.parts))):
             path = "/".join(parts)
-            if path in found or is_template(parts[-1]) or os.fsencode(path) in tracked:
+            if path in found or is_template(parts[-1]) or is_swap_file(parts[-1]):
+                continue
+            if os.fsencode(path) in tracked:
                 continue
             found[path] = EnvFile(path, top.joinpath(*parts))
     return list(found.values())
@@ -133,7 +140,8 @@ def _entries(top: Path, folder: tuple[str, ...]) -> list[tuple[str, bool]]:
     """The folders and files of a folder: each name, and whether it is a folder.
 
     Left out are ``.git``, a folder holding a ``.git`` of its own, a symbolic
-    link to a folder, and what is neither a folder nor a file.
+    link to a folder, a Windows junction, and what is neither a folder nor a
+    file.
     """
     path = top.joinpath(*folder)
     entries = []
@@ -143,7 +151,9 @@ def _entries(top: Path, folder: tuple[str, ...]) -> list[tuple[str, bool]]:
                 if entry.name == ".git":
                     continue
                 if entry.is_dir(follow_symlinks=False):
-                    if not os.path.lexists(os.path.join(entry.path, ".git")):
+                    if not _is_junction(entry) and not os.path.lexists(
+                        os.path.join(entry.path, ".git")
+                    ):
                         entries.append((entry.name, True))
                 elif entry.is_file():
                     entries.append((entry.name, False))
@@ -151,3 +161,13 @@ def _entries(top: Path, folder: tuple[str, ...]) -> list[tuple[str, bool]]:
         name = quote(os.fsencode("/".join(folder) or "."))
         raise OmertaError(f"folder {name} cannot be listed ({error.strerror})") from None
     return entries
+
+
+def _is_junction(entry: os.DirEntry[str]) -> bool:
+    """Whether a folder is a Windows junction, which leads to another folder as a link does.
+
+    Python takes a junction for a folder, not for a symbolic link: one that
+    leads to a folder above it would be walked without end.
+    """
+    # What Windows listed the folder with: read from the entry, without a call.
+    return WINDOWS and getattr(entry.stat(follow_symlinks=False), "st_reparse_tag", 0) == _JUNCTION

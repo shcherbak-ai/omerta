@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import link_folder
 from omerta import envfiles
 from omerta.envfiles import EnvFile
 from omerta.errors import OmertaError
@@ -36,9 +37,11 @@ def test_the_default_patterns_find_the_env_files_at_the_root(tmp_path: Path):
     assert _found(tmp_path) == [".env", ".env.local", ".env.production"]
 
 
-def test_templates_tracked_files_and_folders_are_no_sources(tmp_path: Path):
+def test_templates_swap_files_tracked_files_and_folders_are_no_sources(tmp_path: Path):
     for name in (".env", ".env.example", ".env.local.sample", ".env.template", ".env.ci"):
         _write(tmp_path / name)
+    # Vim keeps it beside the .env it has open: binary, it would not decode.
+    _write(tmp_path / ".env.swp", b"b0VIM 9.1\x00\xff\xfe")
     # A virtual environment named .env.venv is a folder, never a source.
     _write(tmp_path / ".env.venv" / "pyvenv.cfg")
     assert _found(tmp_path, tracked={b".env.ci"}) == [".env"]
@@ -139,6 +142,27 @@ def test_a_link_to_a_file_is_read_through_and_a_link_to_a_folder_is_not_followed
     found = envfiles.find(top, _patterns(".env*", "**/.env"), set())
     assert [env.path for env in found] == [".env", "elsewhere/.env"]
     assert envfiles.read(found[0]) == [("KEY", _SECRET)]
+
+
+def test_a_folder_that_leads_to_another_is_not_followed(tmp_path: Path):
+    # On Windows a junction, which needs no right and which Python takes for a
+    # folder: one that leads back above itself would be walked without end.
+    top = tmp_path / "top"
+    _write(top / "packages" / "app" / ".env")
+    _write(tmp_path / "outside" / ".env")
+    link_folder(top / "packages" / "app" / "loop", top / "packages")
+    link_folder(top / "elsewhere", tmp_path / "outside")
+    assert _found(top, "**/.env") == ["packages/app/.env"]
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_a_plain_folder_is_walked_on_every_platform(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, windows: bool
+):
+    # Only Windows has junctions, and tells them from folders as it lists them.
+    monkeypatch.setattr(envfiles, "WINDOWS", windows)
+    _write(tmp_path / "a" / "b" / ".env")
+    assert _found(tmp_path, "**/.env") == ["a/b/.env"]
 
 
 def _read(tmp_path: Path, content: str | bytes) -> list[tuple[str, str | None]]:

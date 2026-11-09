@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from omerta.errors import OmertaError
-from omerta.patterns import DEFAULT_PATTERNS, Pattern, is_env_file, is_template
+from omerta.patterns import DEFAULT_PATTERNS, Pattern, is_env_file, is_swap_file, is_template
 
 
 @pytest.mark.parametrize(
@@ -73,10 +73,27 @@ def test_templates_are_known_by_their_names(name: str, template: bool):
     assert is_template(name) is template
 
 
+@pytest.mark.parametrize(
+    ("name", "swap_file"),
+    [
+        (".env.swp", True),
+        (".env.local.swo", True),
+        (".env.SWP", False),
+        (".env.swap", False),
+        (".env.sw", False),
+        (".env", False),
+    ],
+)
+def test_swap_files_are_known_by_their_names(name: str, swap_file: bool):
+    assert is_swap_file(name) is swap_file
+
+
 def test_an_env_file_matches_a_pattern_and_is_no_template():
     patterns = tuple(Pattern(text) for text in DEFAULT_PATTERNS)
     assert is_env_file(b".env", patterns)
     assert is_env_file(b".env.production", patterns)
+    # A swap file is no source of values, but in git it holds the env file's text.
+    assert is_env_file(b".env.swp", patterns)
     assert not is_env_file(b".env.example", patterns)
     assert not is_env_file(b"app/.env", patterns)
     assert not is_env_file(b".envrc", patterns)

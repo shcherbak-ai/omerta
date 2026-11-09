@@ -62,6 +62,13 @@ repos:
 
 The hook runs on pre-commit's own Python, which must be 3.11 or later: install pre-commit with `uv tool install pre-commit` or Homebrew, not from Ubuntu 22.04's apt or into macOS's system Python.
 
+If you give the hook `args`, end them with a double dash, as its own do. The staged files come after them, and a file named `-h` would otherwise be read as the option.
+
+```yaml
+- id: omerta
+  args: [--json, --]
+```
+
 <details>
 <summary>Husky, Lefthook, a plain git hook, or omerta pinned in your lockfile</summary>
 
@@ -88,6 +95,7 @@ repos:
       - id: omerta
         name: omerta
         entry: uv run omerta check
+        args: [--]
         language: system
         types: []
         types_or: [file, symlink]

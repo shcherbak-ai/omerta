@@ -209,6 +209,11 @@ def test_promisor_remotes_make_a_partial_clone(repo: Repo):
     repo.git("config", "--unset", "remote.my remote.promisor")
     repo.git("config", "extensions.partialClone", "origin")
     assert git.is_partial_clone()
+    repo.git("config", "--unset", "extensions.partialClone")
+    assert not git.is_partial_clone()
+    # git fetches from a remote that has a filter, whatever its promisor says.
+    repo.git("config", "remote.origin.partialclonefilter", "blob:none")
+    assert git.is_partial_clone()
 
 
 def _source(tmp_path: Path) -> Repo:
@@ -224,12 +229,18 @@ def _source(tmp_path: Path) -> Repo:
     return source
 
 
+@pytest.mark.parametrize("filter_only", [False, True], ids=["as cloned", "filter only"])
 def test_an_older_git_is_refused_in_a_partial_clone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filter_only: bool
 ):
     source = _source(tmp_path)
     clone = tmp_path / "clone"
     source.git("clone", "-q", "--filter=blob:none", source.path.as_uri(), str(clone))
+    if filter_only:
+        # git still fetches from a remote that has only its filter left. An
+        # older git's clone sets the extension too, a newer one's does not.
+        for name in ("remote.origin.promisor", "extensions.partialClone"):
+            subprocess.run(["git", "config", "--unset-all", name], cwd=clone, check=False)
     _with_version(monkeypatch, b"git version 2.44.2\n")
     git = Git(shutil.which("git") or "", str(clone), environment())
     with pytest.raises(OmertaError, match="partial clone.*git 2.44.2 can fetch.*2.45"):

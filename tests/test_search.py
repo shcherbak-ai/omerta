@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from unittest import mock
 
 from hypothesis import given
 from hypothesis import strategies as st
 
-from omerta import config
+from omerta import config, search
 from omerta.envfiles import EnvFile
-from omerta.search import Hit, Matcher, Target, line_of, redact, targets
+from omerta.search import LITERAL_LIMIT, Hit, Matcher, Target, line_of, redact, targets
 
 _KEY = "sk-test-0123456789abcdef"
 _OTHER = "sk-other-fedcba9876543210"
@@ -107,6 +108,28 @@ def test_each_value_of_a_target_is_found_on_its_own():
     }
 
 
+def test_a_form_longer_than_hyperscan_takes_is_searched_for_whole():
+    # Hyperscan has the first 16,000 bytes of each: one literal for the three.
+    start = b"0123456789abcdef" * (LITERAL_LIMIT // 16)
+    assert len(start) == LITERAL_LIMIT
+    one, two = start + b"-one", start + b"-two"
+    matcher = Matcher(
+        [
+            _target((one, "url"), variable="A"),
+            _target((two, "json"), variable="B"),
+            _target((start, "plain"), variable="C"),
+        ]
+    )
+    # The start of a form is not the form.
+    assert matcher.search(b"x" + start + b"-on") == {2: Hit(1, "plain")}
+    # A form is found where it is whole, after an earlier occurrence of its start.
+    assert matcher.search(b"x" + start + b"\n" + one + b"\n" + two) == {
+        0: Hit(len(start) + 2, "url"),
+        1: Hit(2 * len(start) + 7, "json"),
+        2: Hit(1, "plain"),
+    }
+
+
 def test_with_nothing_to_search_for_nothing_is_found():
     assert Matcher([]).search(b"anything at all") == {}
     assert Matcher([_target((b"absent-value", "plain"))]).search(b"") == {}
@@ -168,9 +191,7 @@ def _naive(data: bytes, target: Target) -> dict[int, tuple[int, int, str]]:
     return found
 
 
-@given(_example())
-def test_the_matcher_finds_what_a_search_of_every_form_finds(example: tuple[list[Target], bytes]):
-    searched, content = example
+def _assert_found_as_by_a_search_of_every_form(searched: list[Target], content: bytes) -> None:
     matcher = Matcher(searched)
     expected = {}
     for index, target in enumerate(searched):
@@ -182,6 +203,21 @@ def test_the_matcher_finds_what_a_search_of_every_form_finds(example: tuple[list
     for index, values in expected.items():
         position, _, kind = min(values.values())
         assert hits[index] == Hit(position, kind)
+
+
+@given(_example())
+def test_the_matcher_finds_what_a_search_of_every_form_finds(example: tuple[list[Target], bytes]):
+    _assert_found_as_by_a_search_of_every_form(*example)
+
+
+# With literals of a few bytes, the forms of an example are longer than one, as
+# long as one and shorter, and several forms start with the same literal.
+@given(_example(), st.integers(1, 6))
+def test_the_matcher_finds_the_forms_longer_than_a_literal_as_it_finds_the_others(
+    example: tuple[list[Target], bytes], limit: int
+):
+    with mock.patch.object(search, "LITERAL_LIMIT", limit):
+        _assert_found_as_by_a_search_of_every_form(*example)
 
 
 def _covered(data: bytes, searched: list[Target]) -> list[bool]:

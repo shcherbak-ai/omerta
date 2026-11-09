@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import io
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -13,11 +14,12 @@ from pathlib import Path
 import pytest
 import tethered
 
-from conftest import Repo
+from conftest import Repo, link_folder
 from omerta import __version__, cli, config
 from omerta.output import Finding
 
 _KEY = "sk-test-0123456789abcdef"
+_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_version_and_help_exit_with_0(omerta, tmp_path: Path):
@@ -63,6 +65,55 @@ def test_a_usage_error_names_an_argument_with_its_values_hidden(
     assert result.err.endswith("\nomerta: error: unrecognized arguments: -<BUCKET>.json\n")
 
 
+def test_a_usage_error_hides_the_values_of_the_folder_given_with_c(
+    omerta, repo: Repo, tmp_path: Path
+):
+    repo.write(".env", "BUCKET=acme-prod-data-7731\n")
+    (repo.path / "sub").mkdir()
+    # From outside the repository: its env files are those of the -C folders.
+    run = ("-C", str(repo.path), "-C", "sub")
+    unknown = omerta(*run, "check", "-acme-prod-data-7731.json", cwd=tmp_path)
+    assert unknown.code == 2
+    assert unknown.err.endswith("\nomerta: error: unrecognized arguments: -<BUCKET>.json\n")
+    command = omerta(*run, "acme-prod-data-7731", cwd=tmp_path)
+    assert command.code == 2
+    assert "invalid choice: '<BUCKET>'" in command.err
+    for result in (unknown, command):
+        result.assert_silent_about("acme-prod-data-7731")
+
+
+def test_after_two_dashes_a_file_named_as_an_option_is_a_path(omerta, repo: Repo):
+    repo.write(".env", f"API_KEY={_KEY}\n")
+    repo.write("app.py", f"{_KEY}\n")
+    repo.write("src/a.py", "x = 1\n")
+    for name in ("-h", "--env-file", "-q", "--no-encoded"):
+        repo.write(name, "notes\n")
+    repo.add("app.py", "src/a.py", "-h", "--env-file", "-q", "--no-encoded")
+    found = ["app.py:1: API_KEY (from .env)"]
+    # pre-commit puts the staged files after the hook's args, in any order:
+    # without the `--`, these would be read as options.
+    assert omerta("check", "-h", "app.py", cwd=repo.path).code == 0
+    assert omerta("check", "--env-file", "src/a.py", "app.py", cwd=repo.path).code == 0
+    files = ("-h", "--env-file", "src/a.py", "-q", "--no-encoded", "app.py")
+    result = omerta("check", "--", *files, cwd=repo.path)
+    assert (result.code, result.lines, result.err) == (1, found, "")
+    # The options before it are still options.
+    assert omerta("check", "--json", "--", *files, cwd=repo.path).lines == [
+        '{"path": "app.py", "line": 1, "variable": "API_KEY", "env_file": ".env", "form": "plain"}'
+    ]
+
+
+@pytest.mark.parametrize("name", [".pre-commit-hooks.yaml", ".pre-commit-config.yaml", "README.md"])
+def test_each_pre_commit_hook_ends_its_args_with_two_dashes(name: str):
+    text = (_ROOT / name).read_text(encoding="utf-8")
+    entries = re.findall(r"^ *entry: (?:uv run )?omerta check$", text, re.MULTILINE)
+    args = re.findall(
+        r"^ *entry: (?:uv run )?omerta check\n *args: \[(?:.*, )?--\]$", text, re.MULTILINE
+    )
+    assert entries
+    assert len(args) == len(entries)
+
+
 def test_an_error_before_the_env_files_are_read_names_their_values_hidden(
     omerta, repo: Repo, monkeypatch: pytest.MonkeyPatch
 ):
@@ -90,16 +141,6 @@ def test_a_folder_given_with_c_must_exist(omerta, repo: Repo):
     assert (result.code, result.err) == (2, "omerta: cannot change to missing: no such folder\n")
 
 
-def _link_folder(link: Path, target: Path) -> None:
-    """Make ``link`` lead to the folder ``target``: on Windows a junction, which needs no right."""
-    if sys.platform == "win32":
-        import _winapi
-
-        _winapi.CreateJunction(str(target), str(link))
-    else:
-        link.symlink_to(target, target_is_directory=True)
-
-
 def test_a_folder_reached_through_a_link_is_where_the_link_leads(
     omerta, repo: Repo, tmp_path: Path
 ):
@@ -107,7 +148,7 @@ def test_a_folder_reached_through_a_link_is_where_the_link_leads(
     repo.write("sub/app.py", f"{_KEY}\n")
     repo.add("sub/app.py")
     link = tmp_path / "link"
-    _link_folder(link, repo.path / "sub")
+    link_folder(link, repo.path / "sub")
     found = ["sub/app.py:1: API_KEY (from .env)"]
     # git climbs from where the link leads, and so does omerta: not from its parent.
     assert omerta("-C", str(link), "check", "--all", cwd=repo.path).lines == found

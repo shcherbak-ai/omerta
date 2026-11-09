@@ -187,8 +187,16 @@ class Git:
             )
 
     def is_partial_clone(self) -> bool:
-        """Whether the repository has a promisor remote, from which git fetches lazily."""
+        """Whether the repository has a promisor remote, from which git fetches lazily.
+
+        git takes a remote for one when ``extensions.partialClone`` names it,
+        when its ``promisor`` is true, or when it has a ``partialclonefilter``,
+        whatever its ``promisor`` says.
+        """
         if self.run("config", "--get", "extensions.partialClone", ok=(0, 1)):
+            return True
+        filters = r"^remote\..*\.partialclonefilter$"
+        if self.run("config", "-z", "--get-regexp", filters, ok=(0, 1)):
             return True
         output = self.run(
             "config", "--type=bool", "-z", "--get-regexp", r"^remote\..*\.promisor$", ok=(0, 1)

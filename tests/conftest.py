@@ -12,6 +12,7 @@ tethered.activate(allow=[], external_subprocess_policy="allow")
 import os  # noqa: E402
 import re  # noqa: E402
 import subprocess  # noqa: E402
+import sys  # noqa: E402
 from collections.abc import Iterator  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -199,6 +200,16 @@ def omerta(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch):
         return result
 
     return run
+
+
+def link_folder(link: Path, target: Path) -> None:
+    """Make ``link`` lead to the folder ``target``: on Windows a junction, which needs no right."""
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
 
 
 @pytest.fixture

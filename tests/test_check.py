@@ -10,6 +10,7 @@ import urllib.parse
 import pytest
 
 from conftest import Repo
+from omerta.search import LITERAL_LIMIT
 
 _KEY = "sk-test-0123456789abcdef"
 _URL = "https://res.example.com/"
@@ -224,6 +225,44 @@ def test_no_encoded_searches_the_plain_forms_only(project: Repo, omerta):
     project.add("b64.txt")
     assert omerta("check", cwd=project.path).code == 1
     assert omerta("check", "--no-encoded", cwd=project.path).code == 0
+
+
+def test_a_value_is_found_in_a_form_longer_than_hyperscan_takes(repo: Repo, omerta):
+    # Some 13,000 characters of JSON: fewer than the 16,000 bytes of a literal
+    # as written, more once percent-encoded.
+    keys = [{"id": number, "secret": f"sk-{number:04}-made-up"} for number in range(320)]
+    value = json.dumps({"keys": keys})
+    encoded = urllib.parse.quote(value, safe="")
+    assert len(value) < LITERAL_LIMIT < len(encoded)
+    repo.write(".env", f"SERVICE_ACCOUNT='{value}'\n")
+    repo.write("plain.json", f"a\nb\n{value}\n")
+    repo.write("encoded.txt", f"a\nb\nq={encoded}\n")
+    # The start of the form, which is all that Hyperscan has of it, is not the form.
+    repo.write("cut.txt", f"a\nb\nq={encoded[: LITERAL_LIMIT + 1000]}\n")
+    repo.add("plain.json", "encoded.txt", "cut.txt")
+    result = omerta("check", "--json", cwd=repo.path)
+    found = {"variable": "SERVICE_ACCOUNT", "env_file": ".env"}
+    assert [json.loads(line) for line in result.lines] == [
+        {"path": "encoded.txt", "line": 3, **found, "form": "url"},
+        {"path": "plain.json", "line": 3, **found, "form": "plain"},
+    ]
+    assert (result.code, result.err) == (1, "")
+    result.assert_silent_about(value, encoded)
+
+
+def test_a_swap_file_beside_an_env_file_is_no_source_and_in_git_a_leak(project: Repo, omerta):
+    # Vim keeps it while .env is open: binary, it would not decode.
+    project.write(".env.swp", b"b0VIM 9.1\x00\x00\x10\x00\xff\xfe" + f"API_KEY={_KEY}".encode())
+    project.write("app.py", f"{_KEY}\n")
+    project.add("app.py")
+    result = omerta("check", cwd=project.path)
+    assert (result.lines, result.err) == (["app.py:1: API_KEY (from .env)"], "")
+    project.add(".env.swp")
+    assert omerta("check", cwd=project.path).lines == [
+        ".env.swp: tracked env file",
+        ".env.swp:1: API_KEY (from .env)",
+        "app.py:1: API_KEY (from .env)",
+    ]
 
 
 def test_binary_content_is_searched(project: Repo, omerta):

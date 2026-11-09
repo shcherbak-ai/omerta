@@ -28,17 +28,20 @@ def main(argv: list[str] | None = None) -> int:
         file is found, and 2 on an error, which wins over findings.
     """
     parser, check_parser = _parser()
+    # argparse writes each option here as it reads it: after a usage error, the
+    # `-C` folders read before it are still known.
+    args = argparse.Namespace(folders=[])
     try:
-        args = parser.parse_args(argv)
+        parser.parse_args(argv, args)
         if args.command == "check" and args.all and args.paths:
             check_parser.error("PATH arguments cannot be given with --all")
     except SystemExit as exit_:  # --help and --version
         return exit_.code if isinstance(exit_.code, int) else 0 if exit_.code is None else 2
     except _UsageError as usage:
-        # An argument may hold a value: pre-commit passes a staged file whose
-        # name starts with "-", which argparse reads as an option.
-        start = os.path.realpath(os.getcwd())
-        _write(sys.stderr, _hidden(str(usage), _readable(find_repository(start), None)))
+        # An argument may hold a value: a staged file whose name starts with
+        # "-", which argparse reads as an option where no `--` comes before it.
+        folder = os.path.realpath(os.path.join(os.getcwd(), *args.folders))
+        _write(sys.stderr, _hidden(str(usage), _readable(find_repository(folder), None)))
         return 2
     findings: list[Finding] = []
     searched: list[Target] = []

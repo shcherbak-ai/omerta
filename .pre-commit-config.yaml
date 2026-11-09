@@ -122,10 +122,12 @@ repos:
         types: [python]
         pass_filenames: false
       # omerta itself, from the source, on the staged files: symbolic links too,
-      # which pre-commit tags `symlink` only, never `file`.
+      # which pre-commit tags `symlink` only, never `file`. After the `--`, a
+      # file with the name of an option (`-h`) is read as a path.
       - id: omerta
         name: omerta
         entry: uv run omerta check
+        args: [--]
         language: system
         types: []
         types_or: [file, symlink]

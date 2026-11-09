@@ -14,6 +14,11 @@ DEFAULT_PATTERNS = (".env", ".env.*")
 # never a leak: `.env.example` documents the variables, without their values.
 TEMPLATES = ("*.example", "*.sample", "*.template")
 
+# A file whose name matches this is an editor's swap file, never a source: Vim
+# keeps `.env.swp`, which is binary, beside the `.env` it has open. In git it is
+# a leak as any env file is, since it holds the text of the file.
+SWAP_FILES = ("*.sw?",)
+
 _DRIVE = re.compile(r"[A-Za-z]:")
 
 
@@ -37,6 +42,11 @@ class Pattern:
 def is_template(name: str) -> bool:
     """Whether a file name is that of a template, such as ``.env.example``."""
     return any(fnmatch.fnmatchcase(name, template) for template in TEMPLATES)
+
+
+def is_swap_file(name: str) -> bool:
+    """Whether a file name is that of an editor's swap file, such as ``.env.swp``."""
+    return any(fnmatch.fnmatchcase(name, swap_file) for swap_file in SWAP_FILES)
 
 
 def is_env_file(path: bytes, patterns: Sequence[Pattern]) -> bool:

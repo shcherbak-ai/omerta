@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. Each versio
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- The pre-commit hook passes `--` before the staged files, so that a file at the root with the name of an option is searched as any other. Without it, a file named `-h` made the hook print its help and pass, and one named `--env-file` took the next file for its pattern, so that `.env` was not read. If you set the hook's `args`, end them with `--`; in a local hook, add `args: [--]`.
+- A value whose encoded form is longer than 16,000 bytes, such as a few thousand characters of JSON once percent-encoded, is searched for like any other. It ended every run with an unexpected error.
+- An editor's swap file (`*.sw?`) is not read as an env file: with `.env` open in Vim, every run ended with an error on `.env.swp`. A tracked one is still reported as a tracked env file.
+- On Windows, a junction to a folder is not followed when env files are looked for, as a symbolic link to a folder is not. With a pattern that names folders, such as `**/.env`, a junction that leads back to a folder above it ended the run with an error, and one that leads elsewhere brought in the env files there.
+- A repository whose remote has a `partialclonefilter` but no `promisor` setting is taken for a partial clone, as git takes it: omerta refuses it where git is older than 2.45, which could fetch a missing object there.
+- A usage error under `-C` hides the values of the env files of that folder's repository. It took them from the folder omerta was started in, and so repeated a value in an argument, such as a file whose name starts with `-`.
+
 ## [0.1.2] - 2026-10-27
 
 ### Fixed
@@ -27,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - A pre-commit hook, `omerta`.
 - Its two dependencies, python-dotenv and hyperscan, pinned to exact versions: a new release of either reaches users only through a release of omerta.
 
+[Unreleased]: https://github.com/shcherbak-ai/omerta/compare/v0.1.2...HEAD
 [0.1.2]: https://github.com/shcherbak-ai/omerta/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/shcherbak-ai/omerta/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/shcherbak-ai/omerta/releases/tag/v0.1.0
