@@ -18,9 +18,12 @@ on:
     workflows: [CI]
     types: [completed]
 
+# The two runs of a release take their turns: the second waits for the first,
+# which may be uploading, and then finds the release made. Cancelling would
+# stop the first, not the second.
 concurrency:
   group: publish-${{ github.event.workflow_run.head_sha }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 # Checkouts leave no token in .git/config (persist-credentials: false): the
 # build's smoke test runs the code of the dependencies.
@@ -165,9 +168,9 @@ jobs:
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           # A tag push and a main push at the same SHA produce two CI runs and
-          # thus two publish runs; the concurrency group cancels the one that
-          # runs while the other does, and skip-existing makes the upload of
-          # the later one a no-op rather than a hard failure.
+          # thus two publish runs; the concurrency group makes the second wait
+          # for the first, and skip-existing makes its upload a no-op rather
+          # than a hard failure.
           skip-existing: true
 
   # The GitHub release of the tag, named after it, with the notes that the
