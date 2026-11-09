@@ -114,7 +114,7 @@ jobs:
         with:
           fetch-depth: 0  # all of the history
           persist-credentials: false
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa  # v10.3.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       - run: uvx omerta@0.1.2 check --all
       - run: uvx omerta@0.1.2 history
 ```

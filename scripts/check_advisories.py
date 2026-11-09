@@ -84,7 +84,7 @@ ACCEPTED_ADVISORIES: dict[str, tuple[str, str | None]] = {
 # The batch query of osv.dev, for the advisories of many versions at once.
 OSV_QUERY_BATCH = "https://api.osv.dev/v1/querybatch"
 
-# The uv a workflow pins: `UV_VERSION: "0.13.4"`.
+# The uv a workflow pins: `UV_VERSION: "0.13.6"`.
 _UV_PIN = re.compile(r"""^\s*UV_VERSION:\s*["']?([0-9][^"'\s]*)["']?\s*$""", re.MULTILINE)
 
 

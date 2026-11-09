@@ -19,13 +19,13 @@ permissions:
   contents: read
 
 env:
-  UV_VERSION: "0.13.4"
+  UV_VERSION: "0.13.6"
   # The SHA-256 of its uv-x86_64-unknown-linux-gnu.tar.gz, which setup-uv
   # checks the Linux jobs' download against: it knows the checksums of the uv
   # releases before its own only, and takes the others from a list it fetches
   # as it runs. A new UV_VERSION fails there until this follows it. The test
   # matrix, which holds no secret, keeps setup-uv's own check.
-  UV_LINUX_X64_SHA256: "2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f"
+  UV_LINUX_X64_SHA256: "f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645"
 
 jobs:
   lint:
@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa  # v10.3.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           checksum: ${{ env.UV_LINUX_X64_SHA256 }}
@@ -88,7 +88,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa  # v10.3.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
 
