@@ -303,8 +303,24 @@ def test_on_windows_a_rooted_pattern_or_a_drive_matches_nothing(monkeypatch: pyt
     assert not _left_out(["C:\\.env"], ".env")
     assert not _left_out(["C:"], "C:")
     assert not _left_out(["C:\\..\\.env"], ".env")
-    # Go puts `./` before a first part with a colon, so that it is not a drive.
-    assert not _left_out(["ab:*"], "ab:x")
+
+
+def test_on_windows_a_colon_puts_dot_before_a_pattern_only_where_cleaning_changed_it(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Go puts `.\` before a first part with a colon, so that it is not a drive,
+    # only once a byte of the result differs, as Docker 29.9's Windows client
+    # shows: `!.env.[[:digit:]]` stays an exception (the builder cleans the
+    # trailing `/` away first), and `![[:digit:]]/.env`, its `/` made `\`, is none.
+    monkeypatch.setattr(dockerignore, "WINDOWS", True)
+    assert dockerignore._clean_here("ab:*") == "ab:*"
+    assert dockerignore._clean_here("ab:/x") == ".\\ab:\\x"
+    assert not _left_out(["*", "!.env.[[:digit:]]"], ".env.1")
+    assert not _left_out(["*", "!.env.[[:digit:]]/"], ".env.1")
+    assert _left_out(["*", "![[:digit:]]/.env"], "1/.env")
+    # Its Linux client keeps that one.
+    monkeypatch.setattr(dockerignore, "WINDOWS", False)
+    assert not _left_out(["*", "![[:digit:]]/.env"], "1/.env")
 
 
 def test_on_windows_a_part_the_builder_cleaned_away_stays_away(monkeypatch: pytest.MonkeyPatch):

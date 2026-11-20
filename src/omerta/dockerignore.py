@@ -33,14 +33,15 @@ from omerta.git import WINDOWS
 
 # What Go's strings.TrimSpace removes: the characters of unicode.IsSpace, which,
 # unlike Python's str.isspace, leaves out \x1c to \x1f.
-_SPACE = (
+GO_SPACES = (
     "\t\n\v\f\r \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009"
     "\u200a\u2028\u2029\u202f\u205f\u3000"
 )
 
 # Go's bufio.Scanner, which ReadAll reads lines with, refuses a line of 64 KiB
-# or more, and ReadAll the whole file with it.
-_LONGEST_LINE = 64 * 1024 - 1
+# or more, and ReadAll the whole file with it. BuildKit's Dockerfile parser
+# reads with one too, and stops there (docker.py).
+LONGEST_LINE = 64 * 1024 - 1
 
 # The characters that patternmatcher escapes in a regular expression. It means to
 # escape `|`, `{` and `}` too, but the table it keeps them in drops every
@@ -246,7 +247,7 @@ def _read(data: bytes, name: str) -> list[tuple[int, str]]:
         lines.pop()
     found = []
     for number, raw in enumerate(lines, 1):
-        if len(raw) > _LONGEST_LINE:
+        if len(raw) > LONGEST_LINE:
             raise OmertaError(f"{name}, line {number}: Docker refuses a line of 64 KiB or more")
         raw = raw.removesuffix(b"\r")
         if number == 1:
@@ -256,12 +257,12 @@ def _read(data: bytes, name: str) -> list[tuple[int, str]]:
             raise OmertaError(f"{name}, line {number} is not UTF-8 text")
         if line.startswith("#"):
             continue
-        pattern = line.strip(_SPACE)
+        pattern = line.strip(GO_SPACES)
         if not pattern:
             continue
         exception = pattern.startswith("!")
         if exception:
-            pattern = pattern[1:].strip(_SPACE)
+            pattern = pattern[1:].strip(GO_SPACES)
         if pattern:
             pattern = _clean(pattern)
             if len(pattern) > 1 and pattern.startswith("/"):
@@ -308,23 +309,28 @@ def _clean_here(path: str) -> str:
 
     On Windows, ``/`` and ``\\`` both separate folders, and the result has
     ``\\``; a drive (``C:``) or a network share (``\\\\server``) stays at the
-    start, and a first part with a ``:`` in it gets ``.\\`` in front, so that
-    it is not taken for a drive. Such a pattern matches no path of a build
-    context, which never has a ``:`` and never starts with a separator on
-    Windows.
+    start. A first part with a ``:`` in it gets ``.\\`` in front, so that it
+    is not taken for a drive, but only where cleaning changed the path (a
+    ``/`` made ``\\``, a ``..`` resolved), not where it left it as it was or
+    only cut it short: Go builds the result only once a byte differs. So
+    ``!.env.[[:digit:]]`` stays an exception, and ``![[:digit:]]/.env`` turns
+    into ``.\\![[:digit:]]\\.env``, which is none, as Docker's Windows client
+    shows. Such a pattern matches no path of a build context, which never has
+    a ``:`` and never starts with a separator on Windows.
     """
     if not WINDOWS:
         return _clean(path)
+    given = path
     path = path.replace("\\", "/")
     if path.startswith("//"):
-        cleaned = path
-    elif _DRIVE.match(path):
+        return path.replace("/", "\\")
+    if _DRIVE.match(path):
         cleaned = path[:2] + (_clean(path[2:]) if len(path) > 2 else ".")
-    else:
-        cleaned = _clean(path)
-        if ":" in cleaned.split("/")[0]:
-            cleaned = f"./{cleaned}"
-    return cleaned.replace("/", "\\")
+        return cleaned.replace("/", "\\")
+    cleaned = _clean(path).replace("/", "\\")
+    if ":" in cleaned.split("\\")[0] and not given.startswith(cleaned):
+        cleaned = f".\\{cleaned}"
+    return cleaned
 
 
 def _compiled(text: str, line: int) -> _Pattern | None:
@@ -339,7 +345,7 @@ def _compiled(text: str, line: int) -> _Pattern | None:
             compares the pattern as a string and another in a regular
             expression.
     """
-    text = text.strip(_SPACE)
+    text = text.strip(GO_SPACES)
     if not text:
         return None
     if WINDOWS:

@@ -115,6 +115,8 @@ def _run(args: argparse.Namespace, findings: list[Finding], searched: list[Targe
     elif args.command == "history":
         history.run(git, searched, settings.patterns, findings)
     else:
+        known = {source.path for source in sources}
+        searched.extend(_also_named(Path(top), settings, known))
         docker.run(Path(top), settings, findings)
 
 
@@ -129,6 +131,23 @@ def _settings(top: Path, args: argparse.Namespace | None) -> config.Settings:
         ignore=args.ignore,
         encoded=args.encoded,
     )
+
+
+def _also_named(top: Path, settings: config.Settings, known: set[str]) -> list[Target]:
+    """The targets of the env files that ``docker`` reports beside the sources, to hide in it.
+
+    It names tracked env files and those of nested repositories too, and a
+    path may hold one of their values (``Dockerfile.<TOKEN>``), so their
+    values are hidden in its output as the sources' are. One that cannot be
+    read or parsed, or a swap file, has none.
+    """
+    found: list[Target] = []
+    for path in envfiles.every(top, settings.patterns):
+        if path not in known:
+            env_file = envfiles.EnvFile(path, top.joinpath(*path.split("/")))
+            with contextlib.suppress(OmertaError):
+                found.extend(targets([env_file], settings))
+    return found
 
 
 def _readable(top: str | None, args: argparse.Namespace | None) -> list[Target]:

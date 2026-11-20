@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import codecs
 import os
+import re
 from pathlib import Path
 
 from omerta import envfiles
 from omerta.config import Settings
-from omerta.dockerignore import Ignore
+from omerta.dockerignore import GO_SPACES, LONGEST_LINE, Ignore
 from omerta.errors import OmertaError
 from omerta.git import WINDOWS
 from omerta.output import Finding, quote
@@ -72,7 +73,7 @@ def builds(
     for folder in sorted(folders):
         for name in envfiles.files(top, folder):
             path = f"{folder}/{name}" if folder else name
-            if is_dockerfile(name) and _starts_a_build(top.joinpath(*path.split("/"))):
+            if is_dockerfile(name) and _starts_a_build(_resolved(top, folder, name)):
                 found[path] = folder
     for dockerfile, folder in configured:
         if not top.joinpath(*dockerfile.split("/")).is_file():
@@ -90,27 +91,38 @@ def builds(
     return sorted(found.items())
 
 
-# A Dockerfile's lines are read this many bytes at most at a time: a binary
-# file named like one need not be read whole.
-_LINE = 64 * 1024
+# What BuildKit's parser splits an instruction's word off at: ASCII spaces only.
+_WORD_END = re.compile(r"[\t\v\f\r ]+")
 
 
-def _starts_a_build(path: Path) -> bool:
+def _starts_a_build(path: Path | None) -> bool:
     """Whether a file named like a Dockerfile can be one: its first instruction is FROM or ARG.
 
-    Docker refuses any other (``no build stage in current context``), an
-    unknown word, or an empty file, so a note (``Dockerfile.md``) or an empty
-    file is no build. Blank lines, comments and parser directives come first,
-    a line may be indented or start with a byte order mark, and the word ends
-    at a space only (Docker refuses ``FROM\\``). A file that cannot be read is
-    taken to be one, so that its build is still checked.
+    ``None``, a name that leads to no file where BuildKit reads it
+    (:func:`_resolved`), is none. Docker refuses any other first instruction
+    (``no build stage in current context``), an unknown word, or an empty
+    file, so a note (``Dockerfile.md``) or an empty file is no build. Its
+    lines are read as BuildKit's parser reads them: a line of 64 KiB or more
+    ends the reading (``file with no instructions``), a byte order mark is
+    taken off the first, Go's spaces (a no-break space too) are trimmed off
+    each end, blank lines and comments, parser directives among them, come
+    first, and the word ends at an ASCII space only (Docker refuses ``FROM\\``).
+    A file that cannot be read is taken to be one, so that its build is still
+    checked.
     """
+    if path is None:
+        return False
     try:
         with path.open("rb") as file:
-            for line in iter(lambda: file.readline(_LINE), b""):
-                text = line.removeprefix(codecs.BOM_UTF8).strip()
-                if text and not text.startswith(b"#"):
-                    return text.split(maxsplit=1)[0].upper() in (b"FROM", b"ARG")
+            first = True
+            while line := file.readline(LONGEST_LINE + 1):
+                if len(line) > LONGEST_LINE and not line.endswith(b"\n"):
+                    return False
+                if first:
+                    line, first = line.removeprefix(codecs.BOM_UTF8), False
+                text = line.decode("utf-8", "surrogateescape").strip(GO_SPACES)
+                if text and not text.startswith("#"):
+                    return _WORD_END.split(text, maxsplit=1)[0].lower() in ("from", "arg")
     except OSError:
         return True
     return False
@@ -146,8 +158,9 @@ def run(top: Path, settings: Settings, findings: list[Finding]) -> None:
     from, is a finding unless the build's ignore file leaves it out: the
     Dockerfile's own (``<Dockerfile>.dockerignore``, beside it) where there is
     one, otherwise the folder's ``.dockerignore``. A linked env file is judged
-    by the file it leads to (:func:`_texts`). A build with no env file under
-    its folder is left alone: its ignore file is not even read.
+    by the file it leads to (:func:`_texts`), and a build's folder is taken
+    where its links lead (:func:`_opened`). A build with no env file under its
+    folder is left alone: its ignore file is not even read.
 
     Raises:
         OmertaError: A folder on the way to the env files or the Dockerfiles
@@ -157,11 +170,14 @@ def run(top: Path, settings: Settings, findings: list[Finding]) -> None:
     """
     env_files = _texts(top, envfiles.every(top, settings.patterns))
     for dockerfile, folder in builds(top, env_files, settings.docker_contexts):
-        inside = [(path, _under(path, folder)) for path in env_files]
+        context = _opened(top, folder)
+        if context is None:
+            continue
+        inside = [(path, _under(path, context)) for path in env_files]
         held = [(path, relative) for path, relative in inside if relative is not None]
         if not held:
             continue
-        ignore = _ignore(top, dockerfile, folder)
+        ignore = _ignore(top, dockerfile, context)
         for path, relative in held:
             if not ignore.leaves_out(relative):
                 findings.append(
@@ -198,6 +214,26 @@ def _texts(top: Path, env_files: list[str]) -> list[str]:
     return list(texts)
 
 
+def _opened(top: Path, folder: str) -> str | None:
+    """Where a build's folder is in the working tree, its links followed, as Docker opens it.
+
+    The env files are found as their folders are on disk, links not followed,
+    so a configured folder that is a link (``alias`` for ``real``) holds them
+    at the path the link leads to.
+
+    Returns:
+        The path from the root with ``/``, empty for the root, or ``None``
+        where the folder leads out of the working tree, where no env file of
+        it is.
+    """
+    real = Path(os.path.realpath(top))
+    opened = Path(os.path.realpath(top.joinpath(*folder.split("/")) if folder else top))
+    if not opened.is_relative_to(real):
+        return None
+    relative = opened.relative_to(real).as_posix()
+    return "" if relative == "." else relative
+
+
 def _under(path: str, folder: str) -> str | None:
     """A path relative to a folder (empty for the root), or ``None`` where it is outside it."""
     if not folder:
@@ -211,27 +247,38 @@ def _ignore(top: Path, dockerfile: str, folder: str) -> Ignore:
 
     The Dockerfile's own takes precedence even where it is empty, as Docker
     documents it. BuildKit reads each from the folder it is in, the
-    Dockerfile's and the context's, where a symbolic link leads as
-    :func:`_inside` follows it.
+    Dockerfile's and the context's (:func:`_resolved`).
     """
     beside, _, name = dockerfile.rpartition("/")
     for root, file in ((beside, f"{name}.dockerignore"), (folder, ".dockerignore")):
-        path = f"{root}/{file}" if root else file
-        quoted = quote(os.fsencode(path))
-        try:
-            found = _inside(top.joinpath(*root.split("/")) if root else top, file)
-        except _WslLinkError:
-            raise OmertaError(
-                f"{quoted} leads through a link made in WSL, which Docker's Windows client "
-                "refuses to read: check it from WSL, or replace the link with the file"
-            ) from None
+        found = _resolved(top, root, file)
         if found is not None:
+            quoted = quote(os.fsencode(f"{root}/{file}" if root else file))
             try:
                 data = found.read_bytes()
             except OSError as error:
                 raise OmertaError(f"{quoted} cannot be read ({error.strerror})") from None
             return Ignore(data, quoted)
     return Ignore(b"", ".dockerignore")
+
+
+def _resolved(top: Path, folder: str, name: str) -> Path | None:
+    """The file that a name in a folder of the working tree leads to, as BuildKit reads it there.
+
+    BuildKit reads a Dockerfile and an ignore file from a copy of the folder
+    they are in (:func:`_inside`).
+
+    Raises:
+        OmertaError: The name leads through a link made in WSL.
+    """
+    try:
+        return _inside(top.joinpath(*folder.split("/")) if folder else top, name)
+    except _WslLinkError:
+        path = quote(os.fsencode(f"{folder}/{name}" if folder else name))
+        raise OmertaError(
+            f"{path} leads through a link made in WSL, which Docker's Windows client "
+            "refuses to read: check it from WSL, or replace the link with the file"
+        ) from None
 
 
 # BuildKit gives up on a path after this many symbolic links (continuity's RootPath).
@@ -241,13 +288,14 @@ _LINKS = 255
 def _inside(root: Path, name: str) -> Path | None:
     """The file that a name in a folder leads to, as BuildKit reads it there, or ``None``.
 
-    BuildKit reads an ignore file from a copy of its folder, out of which no
-    link leads: ``..`` stops at the folder, and an absolute target starts from
-    it. So a link that leads out of the folder, or through more than 255
-    links, or to what is no file, leads to no ignore file, and the next one
-    counts. Docker's Windows client sends a target with ``/`` for ``\\`` and
-    without ``\\\\?\\``, so that ``C:\\x`` arrives as ``C:/x``, whose ``C:``,
-    as any name with a ``:``, which no Windows file has, is not in the copy.
+    BuildKit reads a Dockerfile or an ignore file from a copy of its folder,
+    out of which no link leads: ``..`` stops at the folder, and an absolute
+    target starts from it. So a link that leads out of the folder, or through
+    more than 255 links, or to what is no file, leads to none, and for an
+    ignore file the next one counts. Each name is one that its folder lists,
+    spelled as there (:func:`_listed`). Docker's Windows client sends a target
+    with ``/`` for ``\\`` and without ``\\\\?\\``, so that ``C:\\x`` arrives as
+    ``C:/x``, whose ``C:`` is in no folder.
     """
     parts: list[str] = []
     pending = [name]
@@ -259,7 +307,7 @@ def _inside(root: Path, name: str) -> Path | None:
             continue
         if part in ("", "."):
             continue
-        target = _link(root.joinpath(*parts, part)) if _named([*parts, part]) else None
+        target = _link(root.joinpath(*parts, part)) if _listed(root, [*parts, part]) else None
         if target is None:
             parts.append(part)
             continue
@@ -271,16 +319,31 @@ def _inside(root: Path, name: str) -> Path | None:
         if target.startswith("/"):
             parts = []
         pending[:0] = target.split("/")
+    if not _listed(root, parts):
+        return None
     found = root.joinpath(*parts)
-    return found if _named(parts) and found.is_file() else None
+    return found if found.is_file() else None
 
 
-def _named(parts: list[str]) -> bool:
-    """Whether a path's names can be on disk: on Windows, none holds a ``:``.
+def _listed(root: Path, parts: list[str]) -> bool:
+    """Whether each name of a path from a folder is one that its folder lists, spelled as there.
 
-    No Windows file name does, and a join would read one (``C:``) as a drive.
+    Docker's client sends each file under its name on disk, and BuildKit
+    asks for the name it reads, ``.dockerignore`` or a link's target, byte for
+    byte: on Windows and macOS, where ``.DOCKERIGNORE`` opens as
+    ``.dockerignore``, it is no ignore file, as Docker 29.9 builds show. A name
+    with a ``:``, which no Windows file has, is in no folder there, and is
+    never joined, which would read it as a drive.
     """
-    return not (WINDOWS and any(":" in part for part in parts))
+    folder = root
+    for part in parts:
+        try:
+            if part not in os.listdir(folder):
+                return False
+        except OSError:
+            return False
+        folder = folder / part
+    return True
 
 
 # The reparse tag of a link made in WSL on a Windows drive (IO_REPARSE_TAG_LX_SYMLINK).

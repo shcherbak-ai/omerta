@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from conftest import Repo
+from conftest import Repo, link_folder
 from omerta import docker
 from omerta.errors import OmertaError
 
@@ -78,11 +78,18 @@ def test_the_dockerfile_s_own_ignore_file_takes_precedence_even_empty(project: R
 def _fake_links(monkeypatch: pytest.MonkeyPatch, root: Path, links: dict[str, str]) -> None:
     """Have ``_link`` read the paths of ``links``, from ``root`` with ``/``, as links.
 
-    For the cases that a machine without the right to make links (Windows) runs too.
+    For the cases that a machine without the right to make links (Windows) runs
+    too. Each link is a file of its own on disk, so that its folder lists it.
     """
-    monkeypatch.setattr(
-        docker, "_link", lambda path: links.get(Path(path).relative_to(root).as_posix())
-    )
+    for name in links:
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).touch()
+
+    def link(path: Path) -> str | None:
+        inside = Path(path).is_relative_to(root)
+        return links.get(Path(path).relative_to(root).as_posix()) if inside else None
+
+    monkeypatch.setattr(docker, "_link", link)
 
 
 # Each as Docker 29.9 builds it, from api/ with a Linux client: the file the
@@ -352,7 +359,104 @@ def test_the_env_files_of_a_nested_repository_are_in_the_build_context(repo: Rep
         "vendor/lib/.env: in the build context of Dockerfile",
         "vendor/lib/.env: in the build context of vendor/lib/Dockerfile",
     ]
-    result.assert_silent_about("library-token-0123")
+
+
+def test_an_ignore_file_named_in_another_case_is_none(repo: Repo, omerta, tmp_path: Path):
+    # As Docker 29.9 builds it: Windows and macOS open `.DOCKERIGNORE` as
+    # `.dockerignore`, but Docker's client sends it under its own name, which
+    # BuildKit does not ask for.
+    (tmp_path / "probe").mkdir()
+    if not (tmp_path / "PROBE").exists():
+        pytest.skip("this file system tells names apart by case")
+    repo.write(".env", f"API_KEY={_KEY}\n")
+    repo.write("Dockerfile", "FROM scratch\n")
+    repo.write(".DOCKERIGNORE", ".env\n")
+    assert omerta("docker", cwd=repo.path).lines == [".env: in the build context of Dockerfile"]
+
+
+def test_a_name_is_one_that_its_folder_lists_as_spelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    (tmp_path / ".dockerignore").write_text(".env\n", encoding="utf-8")
+    assert docker._inside(tmp_path, ".dockerignore") == tmp_path / ".dockerignore"
+    # As Windows lists a folder whose file opens under another case too.
+    listdir = os.listdir
+    monkeypatch.setattr(os, "listdir", lambda path: [name.upper() for name in listdir(path)])
+    assert docker._inside(tmp_path, ".dockerignore") is None
+
+    def refuse(path: Path) -> list[str]:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(os, "listdir", refuse)
+    assert docker._inside(tmp_path, ".dockerignore") is None
+
+
+def test_a_configured_folder_is_taken_where_its_links_lead(repo: Repo, omerta, tmp_path: Path):
+    # As Docker 29.9 builds `-f build/image.def alias`: it opens the folder
+    # where the link leads, while the env files are found where they are.
+    repo.write(".omerta.toml", 'env-files = ["**/.env"]\n' + _CONTEXT.format("alias"))
+    repo.write("build/image.def", "FROM scratch\n")
+    repo.write("real/.env", "TOKEN=real-token-012345\n")
+    link_folder(repo.path / "alias", repo.path / "real")
+    result = omerta("docker", cwd=repo.path)
+    assert result.lines == ["real/.env: in the build context of build/image.def"]
+    # Leading out of the working tree, it holds none of its env files.
+    (tmp_path / "outside").mkdir()
+    link_folder(repo.path / "away", tmp_path / "outside")
+    repo.write(".omerta.toml", 'env-files = ["**/.env"]\n' + _CONTEXT.format("away"))
+    assert omerta("docker", cwd=repo.path).code == 0
+
+
+_CONTEXT = 'docker-contexts = {{ "build/image.def" = "{}" }}\n'
+
+
+def test_a_linked_dockerfile_is_read_where_buildkit_reads_it(
+    repo: Repo, omerta, monkeypatch: pytest.MonkeyPatch
+):
+    # As Docker 29.9 builds `api`: BuildKit reads the Dockerfile from a copy of
+    # `api`, where `..` stops, so `../recipe` is `api/recipe`, not the note.
+    repo.write(".omerta.toml", 'env-files = ["**/.env"]\n')
+    repo.write("recipe", "Notes on how we build.\n")
+    repo.write("api/recipe", "FROM scratch\n")
+    repo.write("api/.env", "DB_PASSWORD=api-password-0123\n")
+    _fake_links(monkeypatch, repo.path / "api", {"Dockerfile": "../recipe"})
+    result = omerta("docker", cwd=repo.path)
+    assert result.lines == ["api/.env: in the build context of api/Dockerfile"]
+    # Leading to no file there, it is no build.
+    _fake_links(monkeypatch, repo.path / "api", {"Dockerfile": "../missing"})
+    assert omerta("docker", cwd=repo.path).code == 0
+
+
+@pytest.mark.usefixtures("symlinks")
+def test_a_dockerfile_that_links_up_is_read_inside_its_folder(repo: Repo, omerta):
+    repo.write(".omerta.toml", 'env-files = ["**/.env"]\n')
+    repo.write("recipe", "Notes on how we build.\n")
+    repo.write("api/recipe", "FROM scratch\n")
+    repo.write("api/.env", "DB_PASSWORD=api-password-0123\n")
+    (repo.path / "api" / "Dockerfile").symlink_to(Path("..", "recipe"))
+    result = omerta("docker", cwd=repo.path)
+    assert result.lines == ["api/.env: in the build context of api/Dockerfile"]
+
+
+def test_the_values_of_tracked_and_nested_env_files_are_hidden_too(repo: Repo, omerta):
+    # It names them, so a path that holds one of their values hides it, as
+    # it hides the values of the untracked env files at the root.
+    repo.write(".omerta.toml", 'env-files = ["**/.env", "**/.env.*"]\n')
+    repo.write(".env", f"API_KEY={_KEY}\n")
+    repo.write("tracked/.env", "TOKEN=tracked-token-0123\n")
+    repo.git("add", "-f", "tracked/.env")
+    repo.write("tracked/Dockerfile.tracked-token-0123", "FROM scratch\n")
+    repo.write("vendor/lib/.env", "LIB_TOKEN=library-token-0123\n")
+    repo.write("vendor/lib/Dockerfile.library-token-0123", "FROM scratch\n")
+    repo.git("init", "-q", cwd=repo.path / "vendor" / "lib")
+    # A swap file, binary, has no values, and fails nothing.
+    repo.write("tracked/.env.swp", b"b0VIM 9.1\x00\xff\xfe")
+    result = omerta("docker", cwd=repo.path)
+    assert "tracked/.env: in the build context of tracked/Dockerfile.<TOKEN>" in result.lines
+    assert (
+        "vendor/lib/.env: in the build context of vendor/lib/Dockerfile.<LIB_TOKEN>" in result.lines
+    )
+    result.assert_silent_about("tracked-token-0123", "library-token-0123")
 
 
 def test_the_configuration_names_a_dockerfile_that_git_does_not_list(repo: Repo, omerta):
@@ -548,6 +652,10 @@ def test_other_files_are_no_dockerfiles(name: str):
         (b"# a note\n\n   # indented note\nFROM scratch\n", True),
         (b"# escape=`\nFROM scratch\n", True),
         (b"\xef\xbb\xbfFROM scratch\n", True),
+        # Go's spaces, a no-break space among them, are trimmed as ASCII ones are.
+        (b"\xc2\xa0FROM scratch\n", True),
+        # A byte order mark counts on the first line only.
+        (b"# note\n\xef\xbb\xbfFROM scratch\n", False),
     ],
 )
 def test_a_file_named_like_a_dockerfile_is_one_where_docker_could_build_it(
@@ -557,12 +665,22 @@ def test_a_file_named_like_a_dockerfile_is_one_where_docker_could_build_it(
     assert docker._starts_a_build(tmp_path / "Dockerfile") is builds
 
 
-def test_a_long_first_line_is_read_in_parts(tmp_path: Path):
-    # A binary file named like a Dockerfile is not read whole to decide.
-    (tmp_path / "Dockerfile.bin").write_bytes(b" " * docker._LINE + b"FROM scratch\n")
-    assert docker._starts_a_build(tmp_path / "Dockerfile.bin")
-    (tmp_path / "Dockerfile.bin").write_bytes(b"\x00" * (3 * docker._LINE))
-    assert not docker._starts_a_build(tmp_path / "Dockerfile.bin")
+def test_a_line_of_64_kib_or_more_ends_what_docker_reads(tmp_path: Path):
+    # As Docker 29.9 builds them: 60,000 spaces before FROM build, 65,536 are
+    # "file with no instructions". A binary file is not read whole to decide.
+    dockerfile = tmp_path / "Dockerfile.bin"
+    dockerfile.write_bytes(b" " * 60_000 + b"FROM scratch\n")
+    assert docker._starts_a_build(dockerfile)
+    dockerfile.write_bytes(b" " * 65_536 + b"FROM scratch\n")
+    assert not docker._starts_a_build(dockerfile)
+    # The longest that bufio's buffer holds, its line end included, builds;
+    # one byte more does not, as Docker 29.9 builds show.
+    dockerfile.write_bytes(b" " * (65_535 - len(b"FROM scratch")) + b"FROM scratch\n")
+    assert docker._starts_a_build(dockerfile)
+    dockerfile.write_bytes(b" " * (65_536 - len(b"FROM scratch")) + b"FROM scratch\n")
+    assert not docker._starts_a_build(dockerfile)
+    dockerfile.write_bytes(b"\x00" * (3 * 65_536))
+    assert not docker._starts_a_build(dockerfile)
 
 
 def test_a_note_named_like_a_dockerfile_is_no_build(project: Repo, omerta):
