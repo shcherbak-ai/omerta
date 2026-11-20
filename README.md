@@ -57,7 +57,7 @@ ignore = ["DB_HOST", "DB_USER"]
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/shcherbak-ai/omerta
-    rev: v0.1.3
+    rev: v0.2.0
     hooks:
       - id: omerta
 ```
@@ -77,7 +77,7 @@ If you give the hook `args`, end them with a double dash, as its own do. The sta
 ```bash
 #!/bin/sh
 # .husky/pre-commit, or .git/hooks/pre-commit (made executable)
-uvx omerta@0.1.3 check
+uvx omerta@0.2.0 check
 ```
 
 ```yaml
@@ -85,7 +85,7 @@ uvx omerta@0.1.3 check
 pre-commit:
   commands:
     omerta:
-      run: uvx omerta@0.1.3 check
+      run: uvx omerta@0.2.0 check
 ```
 
 In a Python project, `uv add --dev omerta`, and a local pre-commit hook:
@@ -125,8 +125,8 @@ jobs:
           fetch-depth: 0  # all of the history
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-      - run: uvx omerta@0.1.3 check --all
-      - run: uvx omerta@0.1.3 history
+      - run: uvx omerta@0.2.0 check --all
+      - run: uvx omerta@0.2.0 history
 ```
 
 ## Docker
@@ -153,7 +153,7 @@ hooks:
   - id: omerta-docker
 ```
 
-A CI checkout has no `.env` until a job writes one: there, run `uvx omerta@0.1.3 docker` after writing it and before `docker build`.
+A CI checkout has no `.env` until a job writes one: there, run `uvx omerta@0.2.0 docker` after writing it and before `docker build`.
 
 ## What it finds
 

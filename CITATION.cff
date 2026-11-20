@@ -3,8 +3,8 @@ message: "If you use this software, please cite it as below."
 type: software
 title: "omerta"
 abstract: "Catch .env secrets leaking into git: a pre-commit hook and CLI that fails when an API key or any value of your env files is staged, tracked or anywhere in the history, or when a Docker build would copy an env file. Your real values, not patterns."
-version: 0.1.3
-date-released: 2026-11-09
+version: 0.2.0
+date-released: 2026-11-20
 license: MIT
 repository-code: "https://github.com/shcherbak-ai/omerta"
 url: "https://github.com/shcherbak-ai/omerta"

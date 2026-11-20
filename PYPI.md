@@ -18,13 +18,13 @@ As pre-commit hooks:
 ```yaml
 repos:
   - repo: https://github.com/shcherbak-ai/omerta
-    rev: v0.1.3
+    rev: v0.2.0
     hooks:
       - id: omerta
       - id: omerta-docker
 ```
 
-With Husky, Lefthook or a plain git hook: `uvx omerta@0.1.3 check`.
+With Husky, Lefthook or a plain git hook: `uvx omerta@0.2.0 check`.
 
 See the [repository](https://github.com/shcherbak-ai/omerta#readme) for the options, CI and configuration.
 
