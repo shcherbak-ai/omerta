@@ -242,7 +242,9 @@ def test_a_build_takes_the_file_a_linked_env_file_leads_to(repo: Repo, omerta):
     repo.write("config/Dockerfile", "FROM scratch\n")
     repo.write("config/app.secrets", "DB_PASSWORD=api-password-0123\n")
     repo.write(".dockerignore", ".env\n")
-    (repo.path / ".env").symlink_to("config/app.secrets")
+    # With the platform's separator, as Windows' own tools write a link: a
+    # target written with `/` there is one that Windows cannot follow.
+    (repo.path / ".env").symlink_to(Path("config", "app.secrets"))
     result = omerta("docker", cwd=repo.path)
     assert result.lines == [
         "config/app.secrets: in the build context of Dockerfile",
@@ -251,7 +253,7 @@ def test_a_build_takes_the_file_a_linked_env_file_leads_to(repo: Repo, omerta):
     # Leading out of the context, it reaches the image leading nowhere.
     (repo.path / ".env").unlink()
     repo.write("../outside/secrets.env", "DB_PASSWORD=api-password-0123\n")
-    (repo.path / ".env").symlink_to("../outside/secrets.env")
+    (repo.path / ".env").symlink_to(Path("..", "outside", "secrets.env"))
     repo.write(".dockerignore", "")
     assert omerta("docker", cwd=repo.path).code == 0
 

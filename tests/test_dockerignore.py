@@ -538,39 +538,41 @@ def test_a_unicode_class_is_an_error_once_tried(pattern: str):
 _CHARACTERS = "ab.-_é☺"
 
 
-def _go_match(pattern: str, name: str) -> bool:
-    """Go's filepath.Match, outside Windows: the oracle of the test below."""
-    while pattern:
-        star = pattern.startswith("*")
-        pattern = pattern.lstrip("*")
-        end = len(pattern)
-        in_class, position = False, 0
-        while position < len(pattern):
-            if pattern[position] == "\\":
-                position += 1
-            elif pattern[position] == "[":
-                in_class = True
-            elif pattern[position] == "]":
-                in_class = False
-            elif pattern[position] == "*" and not in_class:
-                end = position
-                break
+def _glob_match(pattern: str, name: str) -> bool:
+    """A glob, outside Windows, as patternmatcher's regular expression reads it: the oracle below.
+
+    Read as Go's filepath.Match reads it, chunk by chunk, but trying every way
+    to match, as a regular expression does, where filepath.Match takes each
+    chunk's first match: the two differ where a class matches `/`, as
+    `aa*[^a]*` matches `aa?/` only with `/` for its class.
+    """
+    if not pattern:
+        return not name
+    star = pattern.startswith("*")
+    pattern = pattern.lstrip("*")
+    end = len(pattern)
+    in_class, position = False, 0
+    while position < len(pattern):
+        if pattern[position] == "\\":
             position += 1
-        chunk, pattern = pattern[:end], pattern[end:]
-        if star and not chunk:
-            return "/" not in name
-        for skip in range(len(name) + 1) if star else (0,):
-            if skip and name[skip - 1] == "/":
-                break
-            rest = _go_chunk(chunk, name[skip:])
-            if rest is not None and (not rest or pattern):
-                name = rest
-                break
-        else:
-            return False
-        if rest is None or (rest and not pattern):
-            return False
-    return not name
+        elif pattern[position] == "[":
+            in_class = True
+        elif pattern[position] == "]":
+            in_class = False
+        elif pattern[position] == "*" and not in_class:
+            end = position
+            break
+        position += 1
+    chunk, pattern = pattern[:end], pattern[end:]
+    if star and not chunk:
+        return "/" not in name
+    for skip in range(len(name) + 1) if star else (0,):
+        if skip and name[skip - 1] == "/":
+            break
+        rest = _go_chunk(chunk, name[skip:])
+        if rest is not None and _glob_match(pattern, rest):
+            return True
+    return False
 
 
 def _go_chunk(chunk: str, name: str) -> str | None:
@@ -662,9 +664,16 @@ def _glob_and_name(draw: st.DrawFn) -> tuple[str, str]:
 
 
 @given(_glob_and_name())
-def test_a_pattern_without_double_stars_matches_what_go_s_glob_matches(case: tuple[str, str]):
+def test_a_pattern_without_double_stars_matches_what_its_glob_matches(case: tuple[str, str]):
     pattern, name = case
-    assert _compile(pattern, "/")(name) == _go_match(pattern, name)
+    assert _compile(pattern, "/")(name) == _glob_match(pattern, name)
+
+
+def test_a_class_that_matches_a_slash_is_tried_there_too():
+    # Found by the property above: Go's filepath.Match would take `?` for the
+    # class and fail on the `/` left; the regular expression tries `/`.
+    assert _compile("aa*[^a]*", "/")("aa?/")
+    assert _glob_match("aa*[^a]*", "aa?/")
 
 
 @given(st.text(st.sampled_from("ab./"), max_size=12))
