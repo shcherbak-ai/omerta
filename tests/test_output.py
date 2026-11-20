@@ -97,6 +97,30 @@ def test_check_findings_as_text_and_json():
     assert json_line(tracked) == '{"path": ".env", "tracked_env_file": true}'
 
 
+def test_docker_findings_as_text_and_json():
+    built = Finding(path=b".env", dockerfile=b"docker/app.Dockerfile", context=b".")
+    assert text_line(built) == ".env: in the build context of docker/app.Dockerfile"
+    assert json_line(built) == (
+        '{"path": ".env", "dockerfile": "docker/app.Dockerfile", "context": "."}'
+    )
+    quoted = Finding(path=b'a"b/.env', dockerfile=b'a"b/Dockerfile', context=b'a"b')
+    assert text_line(quoted) == '"a\\"b/.env": in the build context of "a\\"b/Dockerfile"'
+    assert json.loads(json_line(quoted)) == {
+        "path": '"a\\"b/.env"',
+        "dockerfile": '"a\\"b/Dockerfile"',
+        "context": '"a\\"b"',
+    }
+
+
+def test_docker_findings_are_sorted_by_path_then_dockerfile():
+    findings = [
+        Finding(path=b".env", dockerfile=b"b/Dockerfile", context=b"."),
+        Finding(path=b".env", dockerfile=b"a/Dockerfile", context=b"."),
+        Finding(path=b".env.local", dockerfile=b"a/Dockerfile", context=b"."),
+    ]
+    assert sorted(findings, key=sort_key) == [findings[1], findings[0], findings[2]]
+
+
 def test_history_findings_as_text_and_json():
     in_commit = Finding(path=b"a.py", commit=_COMMIT, variable="K", env_file=".env", form="plain")
     assert text_line(in_commit) == f"{_COMMIT} a.py: K (from .env)"

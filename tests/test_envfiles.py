@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+import errno
 import os
 from pathlib import Path
 
@@ -72,6 +73,14 @@ def test_a_double_star_walks_every_folder_but_git_and_nested_repositories(tmp_pa
         _write(tmp_path / name)
     assert _found(tmp_path, "**/.env") == [".env", "a/.env", "a/b/c/.env"]
     assert _found(tmp_path, "a/**") == ["a/.env", "a/b/c/.env"]
+    # Docker copies a nested repository as any other folder, and .git with it.
+    assert envfiles.every(tmp_path, _patterns("**/.env", "module/.env")) == [
+        ".env",
+        "a/.env",
+        "a/b/c/.env",
+        "module/.env",
+        "vendor/lib/.env",
+    ]
 
 
 def test_a_missing_folder_has_no_sources(tmp_path: Path):
@@ -106,6 +115,59 @@ def test_what_is_neither_a_folder_nor_a_file_is_no_source(
 
     monkeypatch.setattr(os, "scandir", lambda path: Listing([_Entry(tmp_path, ".env")]))
     assert _found(tmp_path) == []
+
+
+class _LinkError(OSError):
+    """An error of following a link, with Windows' code on every platform."""
+
+    winerror: int
+
+
+def _unfollowable(code: int, winerror: int = 0) -> OSError:
+    """The error of following a link, as ``os.DirEntry.is_file`` raises it."""
+    error = _LinkError(code, os.strerror(code))
+    error.winerror = winerror
+    return error
+
+
+@pytest.mark.parametrize(
+    ("error", "sources"),
+    [
+        # Leading nowhere: a loop, a target through a file, and on Windows a
+        # target written with `/` (as measured: errno 22, WinError 123), or
+        # through too many links.
+        (_unfollowable(errno.ELOOP), [".env.local"]),
+        (_unfollowable(errno.ENOTDIR), [".env.local"]),
+        (_unfollowable(errno.EINVAL, 123), [".env.local"]),
+        (_unfollowable(errno.EINVAL, 1921), [".env.local"]),
+        # A target that cannot be reached is a source, which reading reports.
+        (_unfollowable(errno.EACCES), [".env", ".env.local"]),
+    ],
+)
+def test_a_link_that_leads_nowhere_is_no_source_and_one_out_of_reach_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError, sources: list[str]
+):
+    # DirEntry.is_file raises for these, where it answers False for a link to nothing.
+    class Unfollowable(_Entry):
+        def is_file(self) -> bool:
+            raise error
+
+    class Listing(list):
+        def __enter__(self) -> Listing:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+    _write(tmp_path / ".env.local", f"KEY={_SECRET}\n")
+    scandir = os.scandir
+
+    def listed(path: Path) -> Listing:
+        with scandir(path) as listing:
+            return Listing([*listing, Unfollowable(Path(path), ".env")])
+
+    monkeypatch.setattr(os, "scandir", listed)
+    assert _found(tmp_path) == sources
 
 
 def test_a_folder_that_cannot_be_listed_is_an_error(

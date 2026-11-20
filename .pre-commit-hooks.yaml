@@ -14,3 +14,13 @@
   types: []
   types_or: [file, symlink]
   minimum_pre_commit_version: "3.0.0"
+# A check of the repository as a whole, which takes no files: it runs at every
+# commit, since an env file that git ignores is never among the staged ones.
+- id: omerta-docker
+  name: omerta docker
+  description: "Fails when an env file is in the build context of a Dockerfile: when .dockerignore, which Docker reads instead of .gitignore, does not leave it out."
+  entry: omerta docker
+  language: python
+  pass_filenames: false
+  always_run: true
+  minimum_pre_commit_version: "3.0.0"

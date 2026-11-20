@@ -55,12 +55,14 @@ def _special(char: str) -> bool:
 
 @dataclass(frozen=True)
 class Finding:
-    """A value found, or a tracked env file.
+    """A value found, a tracked env file, or an env file in a Docker build context.
 
     ``path`` is ``None`` for a message and for a blob that has no path;
-    ``variable`` is ``None`` for a tracked env file. ``commit``, ``blob`` and
-    ``tag`` name where ``history`` found it, ``line`` where ``check`` found it
-    in a file's content; ``in_path`` is a value in the path itself.
+    ``variable`` is ``None`` for a tracked env file and for an env file in a
+    build context, which ``dockerfile`` and ``context`` name. ``commit``,
+    ``blob`` and ``tag`` name where ``history`` found it, ``line`` where
+    ``check`` found it in a file's content; ``in_path`` is a value in the path
+    itself.
     """
 
     path: bytes | None = None
@@ -76,6 +78,10 @@ class Finding:
     form: str | None = None
     order: int = 0
     """For ``history``, the place of the commit in the order of ``git log``."""
+
+    dockerfile: bytes | None = None
+    context: bytes | None = None
+    """The folder the Dockerfile is built from, ``.`` for the root."""
 
 
 def _same(raw: bytes) -> bytes:
@@ -101,6 +107,8 @@ def text_line(finding: Finding, hide: Hide = _same) -> str:
             place = f"{place}:{finding.line}"
         if finding.in_path:
             place = f"{place} (path)"
+    if finding.dockerfile is not None:
+        return f"{place}: in the build context of {quote(hide(finding.dockerfile))}"
     if finding.variable is None:
         return f"{place}: tracked env file"
     variable = quote(finding.variable.encode("utf-8"))
@@ -122,7 +130,10 @@ def json_line(finding: Finding, hide: Hide = _same) -> str:
         record["message"] = True
     if finding.in_path:
         record["in_path"] = True
-    if finding.variable is None:
+    if finding.dockerfile is not None:
+        record["dockerfile"] = quote(hide(finding.dockerfile))
+        record["context"] = quote(hide(finding.context or b"."))
+    elif finding.variable is None:
         record["tracked_env_file"] = True
     else:
         record["variable"] = quote(finding.variable.encode("utf-8"))
@@ -136,7 +147,8 @@ def sort_key(finding: Finding) -> tuple:
 
     By path, as bytes, with a path's tracked env file first and a value in the
     path next, then by variable, then env file, then the order of ``git log``,
-    blob IDs last; the lines without a path come after the others, by object ID.
+    blob IDs last, then by Dockerfile; the lines without a path come after the
+    others, by object ID.
     """
     variable = finding.variable or ""
     if finding.path is None:
@@ -144,4 +156,5 @@ def sort_key(finding: Finding) -> tuple:
         return (1, b"", where, variable, finding.env_order)
     kind = 0 if finding.variable is None else 1 if finding.in_path else 2
     commit = (0, finding.order, "") if finding.blob is None else (1, 0, finding.blob)
-    return (0, finding.path, "", kind, variable, finding.env_order, commit)
+    dockerfile = finding.dockerfile or b""
+    return (0, finding.path, "", kind, variable, finding.env_order, commit, dockerfile)

@@ -59,6 +59,31 @@ def test_options_override_the_configuration_and_add_ignored_names(tmp_path: Path
     assert settings.encoded is True
 
 
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        (
+            ".omerta.toml",
+            'docker-contexts = { "docker/Dockerfile" = ".", "web/Dockerfile" = "web/src" }\n',
+        ),
+        (
+            "pyproject.toml",
+            '[tool.omerta.docker-contexts]\n"docker/Dockerfile" = "."\n'
+            '"web/Dockerfile" = "web/src"\n',
+        ),
+    ],
+)
+def test_docker_contexts_map_dockerfiles_to_the_folders_they_are_built_from(
+    tmp_path: Path, name: str, text: str
+):
+    assert config.load(tmp_path).docker_contexts == ()
+    (tmp_path / name).write_text(text, encoding="utf-8")
+    assert config.load(tmp_path).docker_contexts == (
+        ("docker/Dockerfile", "."),
+        ("web/Dockerfile", "web/src"),
+    )
+
+
 def test_settings_in_both_files_are_an_error(tmp_path: Path):
     (tmp_path / "pyproject.toml").write_text("[tool.omerta]\nmin-chars = 9\n", encoding="utf-8")
     (tmp_path / ".omerta.toml").write_text("min-chars = 10\n", encoding="utf-8")
@@ -80,6 +105,18 @@ def test_settings_in_both_files_are_an_error(tmp_path: Path):
         ('ignore = "HOST"', "ignore must be a list"),
         ("ignore = [1]", "ignore must be a list"),
         ('encoded = "yes"', "encoded must be true or false"),
+        ('docker-contexts = ["Dockerfile"]', "docker-contexts must map Dockerfiles"),
+        ("docker-contexts = { Dockerfile = 1 }", "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "/Dockerfile" = "." }', "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "C:/Dockerfile" = "." }', "docker-contexts must map Dockerfiles"),
+        # Any part that Windows reads as a drive, which a join switches to.
+        ('docker-contexts = { "a/C:x/Dockerfile" = "." }', "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "1:/Dockerfile" = "." }', "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "Dockerfile" = "web/D:" }', "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "a\\\\Dockerfile" = "." }', "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "." = "." }', "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "Dockerfile" = "../app" }', "docker-contexts must map Dockerfiles"),
+        ('docker-contexts = { "Dockerfile" = "" }', "docker-contexts must map Dockerfiles"),
     ],
 )
 def test_a_wrong_setting_is_an_error_naming_the_file(tmp_path: Path, text: str, problem: str):

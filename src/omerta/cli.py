@@ -1,4 +1,4 @@
-"""The command line: ``omerta check`` and ``omerta history``."""
+"""The command line: ``omerta check``, ``omerta history`` and ``omerta docker``."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import traceback
 from pathlib import Path
 from typing import NoReturn, TextIO
 
-from omerta import __version__, check, config, envfiles, history
+from omerta import __version__, check, config, docker, envfiles, history
 from omerta.errors import OmertaError
 from omerta.git import WINDOWS, Git, GitError, environment, find_executable, find_repository
 from omerta.output import Finding, json_line, sort_key, text_line
@@ -24,8 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     """Run omerta with the arguments of the command line, or ``argv``.
 
     Returns:
-        The exit code: 0 when nothing is found, 1 when a value or a tracked env
-        file is found, and 2 on an error, which wins over findings.
+        The exit code: 0 when nothing is found, 1 when a value, a tracked env
+        file or an env file in a build context is found, and 2 on an error,
+        which wins over findings.
     """
     parser, check_parser = _parser()
     # argparse writes each option here as it reads it: after a usage error, the
@@ -111,8 +112,10 @@ def _run(args: argparse.Namespace, findings: list[Finding], searched: list[Targe
     if args.command == "check":
         entries = check.select(git, index, args.paths, args.all)
         check.run(git, entries, searched, settings.patterns, findings)
-    else:
+    elif args.command == "history":
         history.run(git, searched, settings.patterns, findings)
+    else:
+        docker.run(Path(top), settings, findings)
 
 
 def _settings(top: Path, args: argparse.Namespace | None) -> config.Settings:
@@ -184,19 +187,25 @@ def _parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     parser.add_argument("--version", action="version", version=f"omerta {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
-    options = _Parser(add_help=False)
-    options.add_argument(
-        "--min-chars",
-        type=_positive,
-        metavar="N",
-        help="the shortest value searched for, in characters (default: 8)",
-    )
-    options.add_argument(
+    # The options of every command, then those of the commands that search values.
+    common = _Parser(add_help=False)
+    common.add_argument(
         "--env-file",
         dest="env_files",
         action="append",
         metavar="PATTERN",
         help="an env file pattern, repeatable (default: .env and .env.*)",
+    )
+    common.add_argument("--json", action="store_true", help="findings as JSON Lines")
+    common.add_argument(
+        "-q", "--quiet", action="store_true", help="print no findings: the exit code says it"
+    )
+    options = _Parser(add_help=False, parents=[common])
+    options.add_argument(
+        "--min-chars",
+        type=_positive,
+        metavar="N",
+        help="the shortest value searched for, in characters (default: 8)",
     )
     options.add_argument(
         "--ignore",
@@ -209,10 +218,6 @@ def _parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         "--encoded",
         action=argparse.BooleanOptionalAction,
         help="search the URL, JSON and base64 forms too (default), or the plain forms only",
-    )
-    options.add_argument("--json", action="store_true", help="findings as JSON Lines")
-    options.add_argument(
-        "-q", "--quiet", action="store_true", help="print no findings: the exit code says it"
     )
     found = commands.add_parser(
         "check",
@@ -233,6 +238,17 @@ def _parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
             "Search every blob reachable from a ref, and the messages of the commits and tags."
         ),
     )
+    built = commands.add_parser(
+        "docker",
+        parents=[common],
+        help="find the env files in the build context of each Dockerfile of the working tree",
+        description=(
+            "Find the env files in the build context of each Dockerfile of the working tree, "
+            "whatever git makes of either: those that its .dockerignore, matched as Docker's "
+            "BuildKit matches it, does not leave out."
+        ),
+    )
+    built.set_defaults(min_chars=None, ignore=[], encoded=None)
     return parser, found
 
 

@@ -22,6 +22,7 @@
 <a href="#quick-start"><strong>Quick start</strong></a> ·
 <a href="#git-hooks"><strong>Git hooks</strong></a> ·
 <a href="#ci"><strong>CI</strong></a> ·
+<a href="#docker"><strong>Docker</strong></a> ·
 <a href="#configuration"><strong>Configuration</strong></a> ·
 <a href="CHANGELOG.md"><strong>Changelog</strong></a> ·
 <a href="SECURITY.md"><strong>Security</strong></a>
@@ -39,6 +40,7 @@ Pattern scanners such as gitleaks and TruffleHog find what looks like a key; ome
 ```bash
 uvx omerta check --all    # every tracked file
 uvx omerta history        # every commit, tag and message
+uvx omerta docker         # what your Dockerfiles' builds would copy
 ```
 
 [uv](https://docs.astral.sh/uv/) brings its own Python; with pip, `pip install omerta`. Values that are not secrets, such as `DB_HOST=localhost` and `DB_USER=postgres`, are found too: leave them out in `.omerta.toml`:
@@ -127,6 +129,32 @@ jobs:
       - run: uvx omerta@0.1.3 history
 ```
 
+## Docker
+
+Docker reads `.dockerignore`, not `.gitignore`: without a line for it, `COPY . .` copies the `.env` that git ignores into the image. `omerta docker` fails when an env file is in the build context of a Dockerfile, matching `.dockerignore` as Docker's BuildKit does, whatever git makes of either: tracked, untracked or ignored. It needs no Docker and builds nothing.
+
+```text
+$ omerta docker
+.env: in the build context of Dockerfile
+```
+
+A Dockerfile (`Dockerfile`, `Dockerfile.*` or `*.Dockerfile`) is taken to be built from its own folder, as `docker build .` beside it builds it, and its own `<name>.dockerignore` comes before the folder's `.dockerignore`, as in Docker. For one built from another folder, name it:
+
+```toml
+# .omerta.toml
+docker-contexts = { "docker/Dockerfile" = "." }
+```
+
+As a pre-commit hook, beside `omerta`; it checks the whole repository at each commit:
+
+```yaml
+hooks:
+  - id: omerta
+  - id: omerta-docker
+```
+
+A CI checkout has no `.env` until a job writes one: there, run `uvx omerta@0.1.3 docker` after writing it and before `docker build`.
+
 ## What it finds
 
 ```bash
@@ -134,6 +162,7 @@ omerta check           # the staged changes, as git holds them
 omerta check PATH      # the tracked files at or under PATH
 omerta check --all     # every tracked file
 omerta history         # every file version and message reachable from a branch, a tag or HEAD
+omerta docker          # the env files in the build context of each Dockerfile
 ```
 
 - **Values** come from `.env` and `.env.*` at the root that git does not track. Templates (`*.example`, `*.sample`, `*.template`) are skipped.
@@ -151,6 +180,7 @@ src/client.py:12: OPENAI_API_KEY (from .env)          # check
 <commit> (message): OPENAI_API_KEY (from .env)        # a commit or tag message
 infra/<BUCKET>.json (path): BUCKET (from .env)        # a value in a name
 .env.production: tracked env file
+.env: in the build context of Dockerfile              # docker
 ```
 
 A value is never printed: in a name, its variable stands in its place. The exit code is `0` when nothing is found, `1` when something is, and `2` on an error. `--json` writes JSON Lines, with the form each value was found in.
@@ -178,6 +208,7 @@ omerta -C ../api history --env-file .env.local --json
 | `--ignore NAME` | `ignore = []` | Variables not searched for |
 | `--min-chars N` | `min-chars = 8` | The shortest value searched for |
 | `--encoded`,<br>`--no-encoded` | `encoded = true` | Also search URL, JSON and base64 forms |
+| | `docker-contexts = {}` | Dockerfiles built from another folder than their own |
 | `--json` | | Findings as JSON Lines |
 | `-q`, `--quiet` | | Only the exit code and errors |
 | `-C PATH` | | Run as if started in `PATH` |

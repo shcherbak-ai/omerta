@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file. Each versio
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `omerta docker`: fails when an env file of the working tree, tracked or not, is in the build context of a Dockerfile, whatever git makes of either: tracked, untracked or ignored. Docker reads `.dockerignore`, not `.gitignore`, so `COPY . .` copies a `.env` that git ignores into the image unless `.dockerignore` leaves it out. The patterns are matched as Docker's BuildKit matches them, and a pattern that Docker refuses is an error. A Dockerfile (`Dockerfile`, `Dockerfile.*` or `*.Dockerfile`) is taken to be built from its own folder, with its own `<name>.dockerignore` before the folder's `.dockerignore`.
+- The setting `docker-contexts`, which names the folder that a Dockerfile is built from, where it is not the Dockerfile's own, and makes any file a Dockerfile, whatever its name.
+- A pre-commit hook, `omerta-docker`, which checks the whole repository at each commit.
+
+### Fixed
+
+- On Windows, a symbolic link whose target is written with `/`, which Windows cannot follow, is skipped as a broken link when env files are looked for, and so is a link in a loop. In a folder that the patterns walk, either ended every run with an error that the folder cannot be listed. An env file whose link leads where omerta cannot reach is reported by its own name, as one that cannot be read.
+
 ## [0.1.3] - 2026-11-09
 
 ### Fixed
@@ -39,6 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - A pre-commit hook, `omerta`.
 - Its two dependencies, python-dotenv and hyperscan, pinned to exact versions: a new release of either reaches users only through a release of omerta.
 
+[Unreleased]: https://github.com/shcherbak-ai/omerta/compare/v0.1.3...HEAD
 [0.1.3]: https://github.com/shcherbak-ai/omerta/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/shcherbak-ai/omerta/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/shcherbak-ai/omerta/compare/v0.1.0...v0.1.1

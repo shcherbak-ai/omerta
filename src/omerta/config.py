@@ -12,7 +12,7 @@ from omerta.patterns import DEFAULT_PATTERNS, Pattern
 
 DEFAULT_MIN_CHARS = 8
 
-_KEYS = ("env-files", "min-chars", "ignore", "encoded")
+_KEYS = ("env-files", "min-chars", "ignore", "encoded", "docker-contexts")
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,9 @@ class Settings:
     min_chars: int
     ignore: frozenset[str]
     encoded: bool
+    docker_contexts: tuple[tuple[str, str], ...] = ()
+    """Dockerfiles built from a folder other than their own, each with that folder (``.``
+    for the root), as paths from the root with ``/``."""
 
 
 DEFAULTS = Settings(
@@ -65,6 +68,7 @@ def load(
         min_chars=min_chars or configured.get("min-chars", DEFAULT_MIN_CHARS),
         ignore=frozenset([*configured.get("ignore", []), *(ignore or [])]),
         encoded=configured.get("encoded", True) if encoded is None else encoded,
+        docker_contexts=tuple(configured.get("docker-contexts", {}).items()),
     )
 
 
@@ -116,6 +120,16 @@ def _validate(table: dict[str, Any], source: str) -> dict[str, Any]:
             raise OmertaError(f"{source}: ignore must be a list of variable names")
         if key == "encoded" and type(value) is not bool:
             raise OmertaError(f"{source}: encoded must be true or false")
+        if key == "docker-contexts" and not (
+            isinstance(value, dict)
+            and all(isinstance(folder, str) for folder in value.values())
+            and all(_path(name) for name in value)
+            and all(folder == "." or _path(folder) for folder in value.values())
+        ):
+            raise OmertaError(
+                f"{source}: docker-contexts must map Dockerfiles to the folders they are built "
+                'from, each a path from the root with / ("." for the root)'
+            )
     for pattern in table.get("env-files", []):
         try:
             Pattern(pattern)
@@ -127,3 +141,15 @@ def _validate(table: dict[str, Any], source: str) -> dict[str, Any]:
 def _strings(value: object) -> bool:
     """Whether a value is a list of strings."""
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _path(text: str) -> bool:
+    """Whether a text is a path from the root, with ``/``, that stays inside it.
+
+    No part is empty, ``.`` or ``..``, and none is one that Windows reads as a
+    drive, whose second character is ``:`` (``C:x``, ``1:x``): joined to the
+    root, it would switch to that drive.
+    """
+    if "\\" in text:
+        return False
+    return all(part not in ("", ".", "..") and part[1:2] != ":" for part in text.split("/"))

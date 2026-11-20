@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+import errno
 import fnmatch
 import io
 import os
@@ -20,6 +21,12 @@ from omerta.patterns import Pattern, is_swap_file, is_template
 # The reparse tag of a Windows junction (IO_REPARSE_TAG_MOUNT_POINT), which the
 # `stat` module names on Windows only.
 _JUNCTION = 0xA0000003
+
+# The errors of following a link that lead nowhere: a loop, or a part that is a
+# file; on Windows, a name it refuses (ERROR_INVALID_NAME) and too many links
+# (ERROR_CANT_RESOLVE_FILENAME).
+_NOWHERE = (errno.ELOOP, errno.ENOTDIR)
+_NOWHERE_ON_WINDOWS = (123, 1921)
 
 
 @dataclass(frozen=True)
@@ -52,16 +59,57 @@ def find(top: Path, patterns: tuple[Pattern, ...], tracked: set[bytes]) -> list[
     Raises:
         OmertaError: A folder on the way cannot be listed.
     """
-    found: dict[str, EnvFile] = {}
+    return [
+        EnvFile(path, top.joinpath(*parts))
+        for path, parts in _matching(top, patterns)
+        if not is_swap_file(parts[-1]) and os.fsencode(path) not in tracked
+    ]
+
+
+def every(top: Path, patterns: tuple[Pattern, ...]) -> list[str]:
+    """The paths of every env file of the working tree, tracked or not, as Docker sees them.
+
+    They are found as :func:`find` finds them, but for a swap file, which holds
+    the text of the file it is beside, and a folder that holds a ``.git`` of
+    its own (a submodule, a nested repository), which is entered: Docker
+    copies it as any other. A template is left out.
+
+    Returns:
+        The paths relative to the root, with ``/``, in the order of the
+        patterns, then of the paths.
+
+    Raises:
+        OmertaError: A folder on the way cannot be listed.
+    """
+    return [path for path, _ in _matching(top, patterns, nested=True)]
+
+
+def files(top: Path, folder: str) -> list[str]:
+    """The names of the files of a folder, given from the root with ``/``, empty for the root.
+
+    A symbolic link to a file is a file; a folder, and what is neither, is not.
+
+    Raises:
+        OmertaError: The folder cannot be listed.
+    """
+    parts = tuple(folder.split("/")) if folder else ()
+    return [name for name, is_folder in _entries(top, parts) if not is_folder]
+
+
+def _matching(
+    top: Path, patterns: tuple[Pattern, ...], nested: bool = False
+) -> Iterator[tuple[str, tuple[str, ...]]]:
+    """Each file of the working tree that matches a pattern but is no template, once.
+
+    ``nested`` enters the folders that hold a ``.git`` of their own.
+    """
+    seen: set[str] = set()
     for pattern in patterns:
-        for parts in sorted(set(_walk(top, (), pattern.parts))):
+        for parts in sorted(set(_walk(top, (), pattern.parts, nested))):
             path = "/".join(parts)
-            if path in found or is_template(parts[-1]) or is_swap_file(parts[-1]):
-                continue
-            if os.fsencode(path) in tracked:
-                continue
-            found[path] = EnvFile(path, top.joinpath(*parts))
-    return list(found.values())
+            if path not in seen and not is_template(parts[-1]):
+                seen.add(path)
+                yield path, parts
 
 
 def read(env_file: EnvFile) -> list[tuple[str, str | None]]:
@@ -114,34 +162,36 @@ def _decode(data: bytes) -> str | None:
         return None
 
 
-def _walk(top: Path, folder: tuple[str, ...], rest: tuple[str, ...]) -> Iterator[tuple[str, ...]]:
+def _walk(
+    top: Path, folder: tuple[str, ...], rest: tuple[str, ...], nested: bool
+) -> Iterator[tuple[str, ...]]:
     """The files under ``folder`` whose paths match the remaining pattern parts."""
     head, tail = rest[0], rest[1:]
-    entries = _entries(top, folder)
+    entries = _entries(top, folder, nested)
     if head == "**":
         if tail:
-            yield from _walk(top, folder, tail)
+            yield from _walk(top, folder, tail, nested)
         else:
             yield from ((*folder, name) for name, is_folder in entries if not is_folder)
         for name, is_folder in entries:
             if is_folder:
-                yield from _walk(top, (*folder, name), rest)
+                yield from _walk(top, (*folder, name), rest, nested)
         return
     for name, is_folder in entries:
         if not fnmatch.fnmatchcase(name, head):
             continue
         if tail and is_folder:
-            yield from _walk(top, (*folder, name), tail)
+            yield from _walk(top, (*folder, name), tail, nested)
         elif not tail and not is_folder:
             yield (*folder, name)
 
 
-def _entries(top: Path, folder: tuple[str, ...]) -> list[tuple[str, bool]]:
+def _entries(top: Path, folder: tuple[str, ...], nested: bool = False) -> list[tuple[str, bool]]:
     """The folders and files of a folder: each name, and whether it is a folder.
 
-    Left out are ``.git``, a folder holding a ``.git`` of its own, a symbolic
-    link to a folder, a Windows junction, and what is neither a folder nor a
-    file.
+    Left out are ``.git``, a folder holding a ``.git`` of its own unless
+    ``nested``, a symbolic link to a folder, a Windows junction, and what is
+    neither a folder nor a file.
     """
     path = top.joinpath(*folder)
     entries = []
@@ -151,16 +201,34 @@ def _entries(top: Path, folder: tuple[str, ...]) -> list[tuple[str, bool]]:
                 if entry.name == ".git":
                     continue
                 if entry.is_dir(follow_symlinks=False):
-                    if not _is_junction(entry) and not os.path.lexists(
-                        os.path.join(entry.path, ".git")
+                    if not _is_junction(entry) and (
+                        nested or not os.path.lexists(os.path.join(entry.path, ".git"))
                     ):
                         entries.append((entry.name, True))
-                elif entry.is_file():
+                elif _is_file(entry):
                     entries.append((entry.name, False))
     except OSError as error:
         name = quote(os.fsencode("/".join(folder) or "."))
         raise OmertaError(f"folder {name} cannot be listed ({error.strerror})") from None
     return entries
+
+
+def _is_file(entry: os.DirEntry[str]) -> bool:
+    """Whether an entry is a file, or a symbolic link that leads to one.
+
+    :meth:`os.DirEntry.is_file` answers ``False`` for a link to nothing, but
+    raises for one that leads nowhere otherwise, which is no file either: a
+    loop, a target through a file (``ENOTDIR``), or one that Windows cannot
+    follow, its target written with ``/`` (WinError 123), or through too many
+    links (1921). Any other error, such as a target that cannot be reached
+    (``EACCES``), makes the entry a file, so that reading it names it and the
+    error, rather than leave its values out of the search.
+    """
+    try:
+        return entry.is_file()
+    except OSError as error:
+        nowhere = error.errno in _NOWHERE or getattr(error, "winerror", None) in _NOWHERE_ON_WINDOWS
+        return not nowhere
 
 
 def _is_junction(entry: os.DirEntry[str]) -> bool:

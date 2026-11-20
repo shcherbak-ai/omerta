@@ -40,6 +40,8 @@ def test_version_and_help_exit_with_0(omerta, tmp_path: Path):
         (["check", "--all", "a.py"], "PATH arguments cannot be given with --all"),
         (["history", "a.py"], "unrecognized arguments: a.py"),
         (["check", "-C", "x"], "unrecognized arguments: -C"),
+        (["docker", "Dockerfile"], "unrecognized arguments: Dockerfile"),
+        (["docker", "--min-chars", "3"], "unrecognized arguments: --min-chars 3"),
     ],
 )
 def test_a_usage_error_exits_with_2(omerta, tmp_path: Path, args: list[str], problem: str):

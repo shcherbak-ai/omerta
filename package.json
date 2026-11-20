@@ -3,8 +3,8 @@
   "private": true,
   "description": "Development tools, never part of the package: the agents' browser (Playwright MCP), the stylesheet of the README preview, and markdownlint.",
   "devDependencies": {
-    "@playwright/mcp": "^0.0.84",
+    "@playwright/mcp": "^0.0.85",
     "github-markdown-css": "^5.9.0",
-    "markdownlint-cli2": "^0.24.0"
+    "markdownlint-cli2": "^0.24.1"
   }
 }
